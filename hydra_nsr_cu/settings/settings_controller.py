@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 # future breaking change without forcing a migration.
 _PREFIX = defaults.SCHEMA_PREFIX
 _K_ALWAYS_ON_TOP = _PREFIX + "alwaysOnTop"
+_K_COMPACT_MODE = _PREFIX + "compactMode"
 _K_GIS_GAS_PORT_NAME = _PREFIX + "gisGasPortName"
 _K_SPUTTER_PATTERN_FILE = _PREFIX + "sputterPatternFile"
 _K_SPUTTER_COAT_HFW_UM = _PREFIX + "sputterCoatHfwUm"
@@ -49,6 +50,7 @@ class SettingsController(QObject):
     # --- Notify signals ----------------------------------------------------
 
     alwaysOnTopChanged = Signal()
+    compactModeChanged = Signal()
     gisGasPortNameChanged = Signal()
     sputterPatternFileChanged = Signal()
     sputterCoatHfwMicronsChanged = Signal()
@@ -74,6 +76,9 @@ class SettingsController(QObject):
         # change signals during the initial load (no consumers are bound yet).
         self._always_on_top = self._read_bool(
             _K_ALWAYS_ON_TOP, defaults.ALWAYS_ON_TOP
+        )
+        self._compact_mode = self._read_bool(
+            _K_COMPACT_MODE, defaults.COMPACT_MODE
         )
         self._gis_gas_port_name = self._read_str(
             _K_GIS_GAS_PORT_NAME, defaults.GIS_GAS_PORT_NAME
@@ -150,6 +155,21 @@ class SettingsController(QObject):
         self._always_on_top = value
         self._qs.setValue(_K_ALWAYS_ON_TOP, value)
         self.alwaysOnTopChanged.emit()
+
+    # --- Compact Mode ------------------------------------------------------
+
+    @Property(bool, notify=compactModeChanged)
+    def compactMode(self) -> bool:
+        return self._compact_mode
+
+    @compactMode.setter
+    def compactMode(self, value: bool) -> None:
+        value = bool(value)
+        if value == self._compact_mode:
+            return
+        self._compact_mode = value
+        self._qs.setValue(_K_COMPACT_MODE, value)
+        self.compactModeChanged.emit()
 
     # --- GIS Gas Port Name -------------------------------------------------
 

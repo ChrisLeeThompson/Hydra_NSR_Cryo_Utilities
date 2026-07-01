@@ -86,6 +86,7 @@ Item {
 
         Label {
 
+            visible: !appController.settings.compactMode
             text: "These functions can be used to rotate the stage 180°, scan rotate the SEM and FIB, and adjust the stage z height (with Z-Y Link enabled)."
                   + "<br><br><b>Note:</b> the stage rotation and z height functions are not aware of the position of the stage relative to the SEM or FIB polepieces, or the iFLM objective."
             font.pixelSize: AppConfig.pageBodyFontSize
@@ -94,7 +95,10 @@ Item {
 
         }
 
-        Item { Layout.preferredHeight: AppConfig.pageHeadingSpacerHeight }
+        Item {
+            Layout.preferredHeight: appController.settings.compactMode
+                                    ? 0 : AppConfig.pageHeadingSpacerHeight
+        }
 
         GridLayout {
 

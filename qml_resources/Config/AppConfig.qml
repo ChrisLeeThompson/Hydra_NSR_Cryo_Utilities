@@ -18,6 +18,15 @@ QtObject {
     readonly property int mainWindowMinimumWidth: 700
     readonly property int mainWindowMinimumHeight: 700
 
+    // Compact mode — the window snaps to the Stage / Scan page's smaller
+    // footprint. Minimums are lowered while compact so the window can shrink
+    // below the normal 700x700 floor. Tunable; verify against Stage / Scan
+    // content (including the taller Z-safety BLOCKED overlay state).
+    readonly property int compactWindowWidth: 720
+    readonly property int compactWindowHeight: 640
+    readonly property int compactWindowMinimumWidth: 560
+    readonly property int compactWindowMinimumHeight: 520
+
     // Tooltip durations
     readonly property int toolTipDelayMs: 1500
     readonly property int toolTipTimeoutMs: 10000
