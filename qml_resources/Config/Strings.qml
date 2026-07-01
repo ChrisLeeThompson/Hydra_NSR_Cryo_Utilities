@@ -109,7 +109,6 @@ QtObject {
 
         // Settings
     readonly property string alwaysOnTopLabelTooltip: "Keep the UI window above all other applications."
-    readonly property string compactModeLabelTooltip: "Hide page subtitles and shrink the window to the Stage / Scan page's compact size. The window can still be resized."
     readonly property string gisGasPortNameLabelTooltip: "The name of the GIS gas port used in the GIS Purge and GIS Deposition activities."
     readonly property string sputterPatternFileLabelTooltip: "File name of the .ptf sputter pattern to apply, located in the pattern_files folder."
     readonly property string sputterCoatHfwLabelTooltip: "The PFIB horizontal field width (microns) used during sputter coating."

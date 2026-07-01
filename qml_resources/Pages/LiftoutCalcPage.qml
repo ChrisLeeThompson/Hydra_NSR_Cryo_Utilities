@@ -32,7 +32,7 @@ Item {
 
         Label {
 
-            visible: !appController.settings.compactMode
+            visible: !UiState.compact
             text: "This lift-out calculator is designed to assist with determining stage tilt angles"
             + " for cryo lift-out procedures.<br><br>"
             + "<b>Note:</b> some of the calculated angles may result in collision between the EasyLift"
@@ -47,7 +47,7 @@ Item {
         }
 
         Item {
-            Layout.preferredHeight: appController.settings.compactMode
+            Layout.preferredHeight: UiState.compact
                                     ? 0 : AppConfig.pageHeadingSpacerHeight
         }
 

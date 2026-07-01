@@ -163,7 +163,7 @@ Item {
 
         Label {
 
-            visible: !appController.settings.compactMode
+            visible: !UiState.compact
             text: "Activities for preparing the Hydra NSR for cryo applications. "
                 + "These are intended to be used when the stage is at room temperature. "
                 + "Activities begin from the top of the list."
@@ -174,7 +174,7 @@ Item {
         }
 
         Item {
-            Layout.preferredHeight: appController.settings.compactMode
+            Layout.preferredHeight: UiState.compact
                                     ? 0 : AppConfig.pageHeadingSpacerHeight
         }
 

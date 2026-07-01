@@ -14,8 +14,11 @@ ApplicationWindow {
     title: Strings.mainWindowTitle
     width: AppConfig.mainWindowWidth
     height: AppConfig.mainWindowHeight
-    minimumWidth: AppConfig.mainWindowMinimumWidth
-    minimumHeight: AppConfig.mainWindowMinimumHeight
+    // Permanent floor is the compact minimum, so the user can freely drag the
+    // window down into the compact layout (see UiState.compact below). The
+    // initial open size stays the normal mainWindow* size above.
+    minimumWidth: AppConfig.compactWindowMinimumWidth
+    minimumHeight: AppConfig.compactWindowMinimumHeight
     Universal.theme: AppConfig.universalTheme
     Universal.accent: AppConfig.universalAccent
     Universal.foreground: AppConfig.universalForeground
@@ -42,39 +45,23 @@ ApplicationWindow {
                                           settings: 6
                                       })
 
-    // --- Compact mode window sizing --------------------------------------
+    // --- Responsive compact layout -------------------------------------------
     //
-    // Compact mode snaps the window to the Stage / Scan page's footprint and
-    // lowers the minimums so it can shrink below the normal 700x700 floor.
-    // Applied imperatively (not via a `width:`/`height:` binding): a manual
-    // user resize would replace such a binding and silently disable the
-    // toggle. Order matters — when enabling, lower the minimums BEFORE
-    // shrinking; when disabling, restore the size BEFORE raising the minimums
-    // (raising them first would clamp the still-compact window larger).
-    function applyCompact(on) {
-        if (on) {
-            minimumWidth = AppConfig.compactWindowMinimumWidth
-            minimumHeight = AppConfig.compactWindowMinimumHeight
-            width = AppConfig.compactWindowWidth
-            height = AppConfig.compactWindowHeight
-        } else {
-            width = AppConfig.mainWindowWidth
-            height = AppConfig.mainWindowHeight
-            minimumWidth = AppConfig.mainWindowMinimumWidth
-            minimumHeight = AppConfig.mainWindowMinimumHeight
-        }
-    }
-
-    // Apply a persisted compact=true at launch — the initial width/height
-    // bindings above would otherwise open the window at full size.
-    Component.onCompleted: if (appController.settings.compactMode) applyCompact(true)
-
-    // Re-apply whenever the user toggles the setting on the Settings page.
-    Connections {
-        target: appController.settings
-        function onCompactModeChanged() {
-            app_window.applyCompact(appController.settings.compactMode)
-        }
+    // The compact layout (subtitles hidden, header spacers collapsed) is driven
+    // reactively from the live window size: UiState.compact is true whenever the
+    // window has shrunk to the cutoff in either dimension, and every page reads
+    // it for its subtitle visibility and header-spacer height. Because the window
+    // minimums are the compact minimums (see minimumWidth/Height above), the user
+    // can drag the window down into the compact range at any time.
+    //
+    // One-way and loop-free: reading width/height here and hiding subtitles only
+    // reflows content inside the fixed window — it never changes the window size,
+    // so it can't feed back across the threshold.
+    Binding {
+        target: UiState
+        property: "compact"
+        value: app_window.width <= AppConfig.compactBreakpointWidth
+               || app_window.height <= AppConfig.compactBreakpointHeight
     }
 
     ColumnLayout {

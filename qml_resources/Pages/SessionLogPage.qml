@@ -57,7 +57,7 @@ Item {
 
         Label {
 
-            visible: !appController.settings.compactMode
+            visible: !UiState.compact
             text: "RT Prep and Cryo Prep activity information is saved to a session log file and presented here."
                 + " Notes for each session can be added/edited. The session log file can be deleted from the Settings page."
             font.pixelSize: AppConfig.pageBodyFontSize

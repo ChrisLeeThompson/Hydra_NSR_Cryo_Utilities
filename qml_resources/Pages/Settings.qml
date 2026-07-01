@@ -45,7 +45,7 @@ Item {
             // Subtitle: hidden in compact mode (title kept). A collapsed
             // Label yields its slot in the ColumnLayout, so the header
             // reflows with no gap.
-            visible: !appController.settings.compactMode
+            visible: !UiState.compact
             text: "Persistent script settings."
             font.pixelSize: AppConfig.pageBodyFontSize
             Layout.fillWidth: true
@@ -55,14 +55,13 @@ Item {
 
         // Header spacer — collapsed in compact mode for a tighter header.
         Item {
-            Layout.preferredHeight: appController.settings.compactMode
+            Layout.preferredHeight: UiState.compact
                                     ? 0 : AppConfig.pageHeadingSpacerHeight
         }
 
         // The settings form is wrapped in a ScrollView so it never clips at
-        // the compact window height (this is the one page whose body isn't
-        // already a scrolling list/view, and it hosts the Compact mode
-        // toggle, so it must stay reachable at any size).
+        // the compact window height — this is the one page whose body isn't
+        // already a scrolling list/view.
         ScrollView {
 
             id: settingsScrollView
@@ -106,35 +105,12 @@ Item {
 
                 }
 
-                // ---- Row 1: Compact Mode ----
-
-                ToolTippedLabel {
-
-                    id: compactModeLabel
-                    Layout.row: 1
-                    Layout.column: 0
-                    text: "Compact Mode"
-                    toolTipText: Strings.compactModeLabelTooltip
-
-                }
-
-                CheckBox {
-
-                    id: compactModeCheckBox
-                    Layout.row: 1
-                    Layout.column: 1
-                    Layout.alignment: Qt.AlignRight
-                    checked: appController.settings.compactMode
-                    onToggled: appController.settings.compactMode = checked
-
-                }
-
-                // ---- Row 2: GIS Gas Port Name ----
+                // ---- Row 1: GIS Gas Port Name ----
 
                 ToolTippedLabel {
 
                     id: gisGasPortNameLabel
-                    Layout.row: 2
+                    Layout.row: 1
                     Layout.column: 0
                     text: "GIS Gas Port Name"
                     toolTipText: Strings.gisGasPortNameLabelTooltip
@@ -144,7 +120,7 @@ Item {
                 TextField {
 
                     id: gisGasPortNameTextEdit
-                    Layout.row: 2
+                    Layout.row: 1
                     Layout.column: 1
                     Layout.preferredWidth: 120
                     Layout.alignment: Qt.AlignRight
@@ -159,12 +135,12 @@ Item {
 
                 }
 
-                // ---- Row 3: Sputter Pattern File ----
+                // ---- Row 2: Sputter Pattern File ----
 
                 ToolTippedLabel {
 
                     id: sputterPatternFileLabel
-                    Layout.row: 3
+                    Layout.row: 2
                     Layout.column: 0
                     text: "Sputter Pattern File"
                     toolTipText: Strings.sputterPatternFileLabelTooltip
@@ -174,7 +150,7 @@ Item {
                 TextField {
 
                     id: sputterPatternFileTextEdit
-                    Layout.row: 3
+                    Layout.row: 2
                     Layout.column: 1
                     Layout.preferredWidth: 160
                     Layout.alignment: Qt.AlignRight
@@ -188,12 +164,12 @@ Item {
 
                 }
 
-                // ---- Row 4: Sputter Coat HFW (µm) ----
+                // ---- Row 3: Sputter Coat HFW (µm) ----
 
                 ToolTippedLabel {
 
                     id: sputterCoatHfwLabel
-                    Layout.row: 4
+                    Layout.row: 3
                     Layout.column: 0
                     text: "Sputter Coat HFW (µm)"
                     toolTipText: Strings.sputterCoatHfwLabelTooltip
@@ -203,7 +179,7 @@ Item {
                 CustomSpinBox {
 
                     id: sputterCoatHfwSpinBox
-                    Layout.row: 4
+                    Layout.row: 3
                     Layout.column: 1
                     Layout.alignment: Qt.AlignRight
                     enabled: !appController.anyWorkflowRunning
@@ -216,12 +192,12 @@ Item {
 
                 }
 
-                // ---- Row 5: Sputter Coater Port Name ----
+                // ---- Row 4: Sputter Coater Port Name ----
 
                 ToolTippedLabel {
 
                     id: sputterCoatPortNameLabel
-                    Layout.row: 5
+                    Layout.row: 4
                     Layout.column: 0
                     text: "Sputter Coater Port Name"
                     toolTipText: Strings.sputterCoatPortNameLabelTooltip
@@ -231,7 +207,7 @@ Item {
                 TextField {
 
                     id: sputterCoatPortNameTextEdit
-                    Layout.row: 5
+                    Layout.row: 4
                     Layout.column: 1
                     Layout.preferredWidth: 160
                     Layout.alignment: Qt.AlignRight
@@ -242,12 +218,12 @@ Item {
 
                 }
 
-                // ---- Row 6: Bulk Sputtering Duration ----
+                // ---- Row 5: Bulk Sputtering Duration ----
 
                 ToolTippedLabel {
 
                     id: bulkSputteringDefaultDurationLabel
-                    Layout.row: 6
+                    Layout.row: 5
                     Layout.column: 0
                     text: "Bulk Sputtering Duration (s)"
                     toolTipText: Strings.bulkSputteringDefaultDurationLabelTooltip
@@ -257,7 +233,7 @@ Item {
                 CustomSpinBox {
 
                     id: bulkSputteringDefaultDurationSpinBox
-                    Layout.row: 6
+                    Layout.row: 5
                     Layout.column: 1
                     Layout.alignment: Qt.AlignRight
                     enabled: !appController.anyWorkflowRunning
@@ -272,12 +248,12 @@ Item {
 
                 }
 
-                // ---- Row 7: Lamella Sputtering Duration ----
+                // ---- Row 6: Lamella Sputtering Duration ----
 
                 ToolTippedLabel {
 
                     id: lamellaSputteringDefaultDurationLabel
-                    Layout.row: 7
+                    Layout.row: 6
                     Layout.column: 0
                     text: "Lamella Sputtering Duration (s)"
                     toolTipText: Strings.lamellaSputteringDefaultDurationLabelTooltip
@@ -287,7 +263,7 @@ Item {
                 CustomSpinBox {
 
                     id: lamellaSputteringDefaultDurationSpinBox
-                    Layout.row: 7
+                    Layout.row: 6
                     Layout.column: 1
                     Layout.alignment: Qt.AlignRight
                     enabled: !appController.anyWorkflowRunning
@@ -302,7 +278,7 @@ Item {
 
                 }
 
-                // ---- Row 8: Restore PFIB Voltage and Current ----
+                // ---- Row 7: Restore PFIB Voltage and Current ----
                 //
                 // Restores the ion beam's electrical state on a committed
                 // run: high voltage, beam current, and beam on/off. Beam
@@ -313,7 +289,7 @@ Item {
                 ToolTippedLabel {
 
                     id: restoreOriginalPFIBVoltageAndCurrentLabel
-                    Layout.row: 8
+                    Layout.row: 7
                     Layout.column: 0
                     text: "Restore PFIB Voltage and Current"
                     toolTipText: Strings.restoreOriginalPFIBVoltageAndCurrentLabelTooltip
@@ -322,7 +298,7 @@ Item {
                 CheckBox {
 
                     id: restoreOriginalPFIBVoltageAndCurrentCheckBox
-                    Layout.row: 8
+                    Layout.row: 7
                     Layout.column: 1
                     Layout.alignment: Qt.AlignRight
                     enabled: !appController.anyWorkflowRunning
@@ -331,7 +307,7 @@ Item {
 
                 }
 
-                // ---- Row 9: Restore PFIB Ion Species ----
+                // ---- Row 8: Restore PFIB Ion Species ----
                 //
                 // Restores the plasma gas (ion species) on a committed run.
                 // Independent of the voltage/current toggle above — leave
@@ -341,7 +317,7 @@ Item {
                 ToolTippedLabel {
 
                     id: restoreOriginalPFIBIonSpeciesLabel
-                    Layout.row: 9
+                    Layout.row: 8
                     Layout.column: 0
                     text: "Restore PFIB Ion Species"
                     toolTipText: Strings.restoreOriginalPFIBIonSpeciesLabelTooltip
@@ -350,7 +326,7 @@ Item {
                 CheckBox {
 
                     id: restoreOriginalPFIBIonSpeciesCheckBox
-                    Layout.row: 9
+                    Layout.row: 8
                     Layout.column: 1
                     Layout.alignment: Qt.AlignRight
                     enabled: !appController.anyWorkflowRunning
@@ -359,7 +335,7 @@ Item {
 
                 }
 
-                // ---- Row 10: Zero Tilt Before GIS Deposition ----
+                // ---- Row 9: Zero Tilt Before GIS Deposition ----
                 //
                 // When checked, each GIS Deposition activity tilts the stage
                 // to zero degrees before moving to its deposition position,
@@ -371,7 +347,7 @@ Item {
                 ToolTippedLabel {
 
                     id: zeroTiltBeforeGisDepositionLabel
-                    Layout.row: 10
+                    Layout.row: 9
                     Layout.column: 0
                     text: "Zero Tilt Before GIS Deposition"
                     toolTipText: Strings.zeroTiltBeforeGisDepositionLabelTooltip
@@ -380,7 +356,7 @@ Item {
                 CheckBox {
 
                     id: zeroTiltBeforeGisDepositionCheckBox
-                    Layout.row: 10
+                    Layout.row: 9
                     Layout.column: 1
                     Layout.alignment: Qt.AlignRight
                     enabled: !appController.anyWorkflowRunning
@@ -389,12 +365,12 @@ Item {
 
                 }
 
-                // ---- Row 11: Move Stage To Original Position ----
+                // ---- Row 10: Move Stage To Original Position ----
 
                 ToolTippedLabel {
 
                     id: moveStageToOriginalPositionLabel
-                    Layout.row: 11
+                    Layout.row: 10
                     Layout.column: 0
                     text: "Move Stage To Original Position"
                     toolTipText: Strings.moveStageToOriginalPositionLabelTooltip
@@ -403,7 +379,7 @@ Item {
                 CheckBox {
 
                     id: moveStageToOriginalPositionCheckBox
-                    Layout.row: 11
+                    Layout.row: 10
                     Layout.column: 1
                     Layout.alignment: Qt.AlignRight
                     enabled: !appController.anyWorkflowRunning
@@ -412,12 +388,12 @@ Item {
 
                 }
 
-                // ---- Row 12: Reset Parameters For RT Prep Page ----
+                // ---- Row 11: Reset Parameters For RT Prep Page ----
 
                 ToolTippedLabel {
 
                     id: resetRTPrepParametersLabel
-                    Layout.row: 12
+                    Layout.row: 11
                     Layout.column: 0
                     text: "Reset RT Prep Parameters"
                     toolTipText: Strings.resetRTPrepParametersLabelTooltip
@@ -427,7 +403,7 @@ Item {
                 RoundButton {
 
                     id: resetRTPrepParametersButton
-                    Layout.row: 12
+                    Layout.row: 11
                     Layout.column: 1
                     Layout.alignment: Qt.AlignRight
                     text: "Reset RT Prep Parameters"
@@ -456,12 +432,12 @@ Item {
 
                 }
 
-                // ---- Row 13: Reset Parameters For Cryo Prep Page ----
+                // ---- Row 12: Reset Parameters For Cryo Prep Page ----
 
                 ToolTippedLabel {
 
                     id: resetCryoPrepParametersLabel
-                    Layout.row: 13
+                    Layout.row: 12
                     Layout.column: 0
                     text: "Reset Cryo Prep Parameters"
                     toolTipText: Strings.resetCryoPrepParametersLabelTooltip
@@ -471,7 +447,7 @@ Item {
                 RoundButton {
 
                     id: resetCryoPrepParametersButton
-                    Layout.row: 13
+                    Layout.row: 12
                     Layout.column: 1
                     Layout.alignment: Qt.AlignRight
                     text: "Reset Cryo Prep Parameters"
@@ -499,12 +475,12 @@ Item {
                     onClicked: appController.cryoActivities.reset_parameters()
                 }
 
-                // ---- Row 14: Session Log Size ----
+                // ---- Row 13: Session Log Size ----
 
                 ToolTippedLabel {
 
                     id: sessionLogSizeLabel
-                    Layout.row: 14
+                    Layout.row: 13
                     Layout.column: 0
                     text: "Session Log File Size"
                     toolTipText: Strings.sessionLogSizeLabelTooltip
@@ -514,7 +490,7 @@ Item {
                 Label {
 
                     id: sessionLogSizeValueLabel
-                    Layout.row: 14
+                    Layout.row: 13
                     Layout.column: 1
                     Layout.alignment: Qt.AlignRight
                     text: appController.sessionLog.formatFileSize(
@@ -524,12 +500,12 @@ Item {
 
                 }
 
-                // ---- Row 15: Clear Session Log ----
+                // ---- Row 14: Clear Session Log ----
 
                 ToolTippedLabel {
 
                     id: clearSessionLogLabel
-                    Layout.row: 15
+                    Layout.row: 14
                     Layout.column: 0
                     text: "Clear Session Log"
                     toolTipText: Strings.clearSessionLogLabelTooltip
@@ -539,7 +515,7 @@ Item {
                 RoundButton {
 
                     id: clearSessionLogButton
-                    Layout.row: 15
+                    Layout.row: 14
                     Layout.column: 1
                     Layout.alignment: Qt.AlignRight
                     text: "Clear Session Log"

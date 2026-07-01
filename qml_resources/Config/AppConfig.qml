@@ -18,14 +18,17 @@ QtObject {
     readonly property int mainWindowMinimumWidth: 700
     readonly property int mainWindowMinimumHeight: 700
 
-    // Compact mode — the window snaps to the Stage / Scan page's smaller
-    // footprint. Minimums are lowered while compact so the window can shrink
-    // below the normal 700x700 floor. Tunable; verify against Stage / Scan
-    // content (including the taller Z-safety BLOCKED overlay state).
-    readonly property int compactWindowWidth: 720
-    readonly property int compactWindowHeight: 640
+    // Compact mode is responsive: the UI switches to the compact layout
+    // (subtitles hidden, header spacers collapsed) when the window is dragged to
+    // or below compactBreakpointWidth/Height in either dimension.
+    // compactWindowMinimum* is the ApplicationWindow's permanent floor (main.qml),
+    // so the window can be shrunk into that range.
     readonly property int compactWindowMinimumWidth: 560
     readonly property int compactWindowMinimumHeight: 520
+
+    // Responsive cutoff — tune these to move where the compact layout engages.
+    readonly property int compactBreakpointWidth: 760
+    readonly property int compactBreakpointHeight: 680
 
     // Tooltip durations
     readonly property int toolTipDelayMs: 1500

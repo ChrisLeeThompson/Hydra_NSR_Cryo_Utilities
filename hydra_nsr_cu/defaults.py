@@ -37,14 +37,6 @@ SCHEMA_PREFIX: str = "v3/"
 # --- Always On Top ---
 ALWAYS_ON_TOP: bool = False
 
-# --- Compact mode ---
-# When True, the UI uses a compact layout: each page's subtitle is hidden
-# (titles kept) and the window snaps to the Stage / Scan page's smaller
-# footprint. Persisted like the other user settings; the effects live in
-# QML — window sizing in qml_resources/main.qml and subtitle visibility on
-# each page under qml_resources/Pages.
-COMPACT_MODE: bool = False
-
 # --- GIS gas port name (used by GIS Purge activity) ---
 GIS_GAS_PORT_NAME: str = "Pt dep Cryo"
 
