@@ -1,0 +1,11 @@
+# Hydra NSR Cryo Utilities 3.0 — Python runtime dependencies.
+# Requires Python >= 3.11 (tested on 3.11.10). See pyproject.toml.
+
+# GUI framework (Qt for Python). The app is built/tested against 6.7.1.
+PySide6>=6.7.1
+
+# Not pip-installable — listed here for awareness only:
+#   autoscript_sdb_microscope_client — Thermo Fisher AutoScript client for the
+#   real microscope. It is proprietary, ships with the instrument's AutoScript
+#   Python environment, and is not on PyPI. It is lazy-imported, so simulation
+#   mode (python hydra_nsr_cryo_utilities_3.0.py --simulation) runs without it.

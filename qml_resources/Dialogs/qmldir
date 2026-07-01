@@ -1,0 +1,5 @@
+module Dialogs
+PositionNameDialog 1.0 PositionNameDialog.qml
+ConfirmDialog 1.0 ConfirmDialog.qml
+TemplateSaveOptionsDialog 1.0 TemplateSaveOptionsDialog.qml
+TemplateLoadOptionsDialog 1.0 TemplateLoadOptionsDialog.qml

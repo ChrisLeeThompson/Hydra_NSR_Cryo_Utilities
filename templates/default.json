@@ -1,0 +1,36 @@
+{
+    "schema_version": 1,
+    "name": "Default",
+    "description": "The default template for the Cryo Prep page.",
+    "date_created": "2026-05-06T00:00:00+00:00",
+    "cryo_prep_page_activities": [
+        {
+            "activity_type": "sputter_coat",
+            "grid_index": 2,
+            "ion_species_index": 0,
+            "ion_current_a": 1.2e-07,
+            "duration_s": 120,
+            "chamber_recovery_s": 0
+        },
+        {
+            "activity_type": "gis_deposition",
+            "position_name": "",
+            "duration_s": 90,
+            "chamber_recovery_s": 30
+        },
+        {
+            "activity_type": "gis_deposition",
+            "position_name": "",
+            "duration_s": 90,
+            "chamber_recovery_s": 30
+        },
+        {
+            "activity_type": "sputter_coat",
+            "grid_index": 2,
+            "ion_species_index": 0,
+            "ion_current_a": 1.2e-07,
+            "duration_s": 120,
+            "chamber_recovery_s": 0
+        }
+    ]
+}

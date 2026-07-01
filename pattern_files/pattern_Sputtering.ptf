@@ -1,0 +1,157 @@
+<Content Version="FEI PatternFile 1.2">
+  <PatternList>
+    <Mode xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">Parallel</Mode>
+    <Beam xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">Ion</Beam>
+    <GasType xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">µCoater</GasType>
+    <GasSetpoint xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">
+    </GasSetpoint>
+    <GasNeedlePosition xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">
+    </GasNeedlePosition>
+    <Defocus xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</Defocus>
+    <PassCount xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">9227</PassCount>
+    <Blur xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</Blur>
+  </PatternList>
+  <PatternPolygon>
+    <Application xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">Dx_M GISOpen</Application>
+    <Beam xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">Ion</Beam>
+    <DwellTime xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0.0000001</DwellTime>
+    <CenterX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">-3.3386742162385E-05</CenterX>
+    <CenterY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">1.434664008705E-05</CenterY>
+    <Rotation xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</Rotation>
+    <GasType xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">µCoater</GasType>
+    <GasSetpoint xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">
+    </GasSetpoint>
+    <GasNeedlePosition xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">
+    </GasNeedlePosition>
+    <Defocus xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</Defocus>
+    <RefreshTime xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</RefreshTime>
+    <TotalTime xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">120.3828236</TotalTime>
+    <PassCount xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">9227</PassCount>
+    <Enable xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">True</Enable>
+    <ExclusionZone xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">False</ExclusionZone>
+    <Depth xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">3.4902792351245E-08</Depth>
+    <Blur xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</Blur>
+    <InteractionDiameter xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</InteractionDiameter>
+    <RelativeInteractionDiameter xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</RelativeInteractionDiameter>
+    <TotalDiameter xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0.00000372</TotalDiameter>
+    <VolumePerDose xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0.0000000005</VolumePerDose>
+    <Dose xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">6.980558470249E-11</Dose>
+    <SaturationSputterRate xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</SaturationSputterRate>
+    <TotalVolumeSputterRate xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">6.412415E-17</TotalVolumeSputterRate>
+    <SaturationCurrentDensity xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">1</SaturationCurrentDensity>
+    <MaximumDosePerArea xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</MaximumDosePerArea>
+    <VolumeEtchRate xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">6.412415E-17</VolumeEtchRate>
+    <VolumeGasAssistedRate xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</VolumeGasAssistedRate>
+    <VolumeDoseLimitedRate xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</VolumeDoseLimitedRate>
+    <TotalLinearSputterRate xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">5.8999164319957E-06</TotalLinearSputterRate>
+    <TotalBeamArea xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">1.08686539443592E-11</TotalBeamArea>
+    <DepthPerPass xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">3.78268043256151E-12</DepthPerPass>
+    <AreaCalculation xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">Pattern</AreaCalculation>
+    <CrossSectionMill xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">False</CrossSectionMill>
+    <PitchX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0.000001302</PitchX>
+    <PitchY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0.000001302</PitchY>
+    <EqualPitch xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">True</EqualPitch>
+    <ScanDirection xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">BottomToTop</ScanDirection>
+    <FillStyle xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">Solid</FillStyle>
+    <ScanType xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">Serpentine</ScanType>
+    <Points xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">&lt;Points&gt;
+&lt;Point&gt;
+&lt;PositionX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;-8.30443536245754E-05&lt;/PositionX&gt;
+
+&lt;PositionY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;7.38347925000547E-05&lt;/PositionY&gt;
+&lt;/Point&gt;
+
+&lt;Point&gt;
+&lt;PositionX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;-3.21584619729388E-04&lt;/PositionX&gt;
+
+&lt;PositionY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;6.34634765824547E-05&lt;/PositionY&gt;
+&lt;/Point&gt;
+
+&lt;Point&gt;
+&lt;PositionX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;-6.24945610319205E-04&lt;/PositionX&gt;
+
+&lt;PositionY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;2.71638708708544E-05&lt;/PositionY&gt;
+&lt;/Point&gt;
+
+&lt;Point&gt;
+&lt;PositionX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;-8.05877698668917E-04&lt;/PositionX&gt;
+
+&lt;PositionY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;1.13912248200853E-05&lt;/PositionY&gt;
+&lt;/Point&gt;
+
+&lt;Point&gt;
+&lt;PositionX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;-9.53119490675228E-04&lt;/PositionX&gt;
+
+&lt;PositionY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;-4.12296719953356E-05&lt;/PositionY&gt;
+&lt;/Point&gt;
+
+&lt;Point&gt;
+&lt;PositionX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;-7.82907072420329E-04&lt;/PositionX&gt;
+
+&lt;PositionY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;-7.26362810706643E-05&lt;/PositionY&gt;
+&lt;/Point&gt;
+
+&lt;Point&gt;
+&lt;PositionX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;-5.4112677824173E-04&lt;/PositionX&gt;
+
+&lt;PositionY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;-8.52052225657057E-05&lt;/PositionY&gt;
+&lt;/Point&gt;
+
+&lt;Point&gt;
+&lt;PositionX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;9.37680143443921E-05&lt;/PositionX&gt;
+
+&lt;PositionY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;-6.99324898252551E-05&lt;/PositionY&gt;
+&lt;/Point&gt;
+
+&lt;Point&gt;
+&lt;PositionX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;7.28662806930514E-04&lt;/PositionX&gt;
+
+&lt;PositionY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;-1.36901466339875E-05&lt;/PositionY&gt;
+&lt;/Point&gt;
+
+&lt;Point&gt;
+&lt;PositionX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;9.50159482916149E-04&lt;/PositionX&gt;
+
+&lt;PositionY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;4.7411489152969E-05&lt;/PositionY&gt;
+&lt;/Point&gt;
+
+&lt;Point&gt;
+&lt;PositionX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;8.40644665222607E-04&lt;/PositionX&gt;
+
+&lt;PositionY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;7.42820262366187E-05&lt;/PositionY&gt;
+&lt;/Point&gt;
+
+&lt;Point&gt;
+&lt;PositionX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;6.70334516702379E-04&lt;/PositionX&gt;
+
+&lt;PositionY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;8.35579011728057E-05&lt;/PositionY&gt;
+&lt;/Point&gt;
+
+&lt;Point&gt;
+&lt;PositionX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;3.95008489452326E-04&lt;/PositionX&gt;
+
+&lt;PositionY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8"&gt;8.80953518867553E-05&lt;/PositionY&gt;
+&lt;/Point&gt;
+&lt;/Points&gt;
+</Points>
+    <SelectiveMilling>
+      <IsSelectiveMillingEnabled xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">False</IsSelectiveMillingEnabled>
+      <TimeIntervalBeforeAdjust xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">2</TimeIntervalBeforeAdjust>
+      <ContrastThresholdMinimum xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</ContrastThresholdMinimum>
+      <ContrastThresholdMaximum xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">1</ContrastThresholdMaximum>
+    </SelectiveMilling>
+    <EndpointDetection>
+      <IsEndpointDetectionEnabled xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">False</IsEndpointDetectionEnabled>
+      <EndpointDetectionSignalType xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">Intensity</EndpointDetectionSignalType>
+      <EndpointDetectionEndpointType xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">Peak</EndpointDetectionEndpointType>
+      <EndpointNum xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</EndpointNum>
+      <EndpointDetectionAlgorithmType xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="string">ThresholdBased</EndpointDetectionAlgorithmType>
+      <EndpointDetectionTimeAveragingInterval xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</EndpointDetectionTimeAveragingInterval>
+      <EndpointDetectionInitialThreshold xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</EndpointDetectionInitialThreshold>
+      <EndpointDetectionPeakThresholdCoefficient xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</EndpointDetectionPeakThresholdCoefficient>
+      <EndpointDetectionTroughThresholdCoefficient xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">0</EndpointDetectionTroughThresholdCoefficient>
+    </EndpointDetection>
+    <OverlapX xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">65</OverlapX>
+    <OverlapY xmlns:dt="urn:schemas-microsoft-com:datatypes" dt:dt="r8">65</OverlapY>
+  </PatternPolygon>
+</Content>

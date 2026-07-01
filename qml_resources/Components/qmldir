@@ -1,0 +1,21 @@
+module Components
+ActivityContainer 1.0 ActivityContainer.qml
+SideBar 1.0 SideBar.qml
+StatusBar 1.0 StatusBar.qml
+GISPurge 1.0 GISPurge.qml
+SputterCoat 1.0 SputterCoat.qml
+GISDeposition 1.0 GISDeposition.qml
+StagePositions 1.0 StagePositions.qml
+StagePositionsListView 1.0 StagePositionsListView.qml
+CustomSpinBox 1.0 CustomSpinBox.qml
+ToolTippedLabel 1.0 ToolTippedLabel.qml
+LiftoutCalculator 1.0 LiftoutCalculator.qml
+MillingAngleCalculator 1.0 MillingAngleCalculator.qml
+ShuttleDiagram 1.0 ShuttleDiagram.qml
+ShuttleGraphics 1.0 ShuttleGraphics.qml
+ShuttleReferenceGraphics 1.0 ShuttleReferenceGraphics.qml
+HoverOutline 1.0 HoverOutline.qml
+TiltIndicatorArc 1.0 TiltIndicatorArc.qml
+SampleDiagram 1.0 SampleDiagram.qml
+SampleGraphics 1.0 SampleGraphics.qml
+SampleReferenceGraphics 1.0 SampleReferenceGraphics.qml

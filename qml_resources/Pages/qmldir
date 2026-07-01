@@ -1,0 +1,7 @@
+module Pages
+RoomTempPrepPage 1.0 RoomTempPrepPage.qml
+CryoTempPrepPage 1.0 CryoTempPrepPage.qml
+Settings 1.0 Settings.qml
+StageScanPage 1.0 StageScanPage.qml
+LiftoutCalcPage 1.0 LiftoutCalcPage.qml
+SessionLogPage 1.0 SessionLogPage.qml

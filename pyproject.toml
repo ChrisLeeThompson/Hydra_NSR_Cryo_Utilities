@@ -1,0 +1,56 @@
+[project]
+name = "Hydra NSR Cryo Utilities 3.0"
+version = "3.0"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.7.1",
+]
+
+[tool.pyside6-project]
+files = [
+    "hydra_nsr_cryo_utilities_3.0.py",
+    "qml_resources/Components/ActivityContainer.qml",
+    "qml_resources/Components/CustomSpinBox.qml",
+    "qml_resources/Components/GISDeposition.qml",
+    "qml_resources/Components/GISPurge.qml",
+    "qml_resources/Components/HoverOutline.qml",
+    "qml_resources/Components/LiftoutCalculator.qml",
+    "qml_resources/Components/MillingAngleCalculator.qml",
+    "qml_resources/Components/SampleDiagram.qml",
+    "qml_resources/Components/SampleGraphics.qml",
+    "qml_resources/Components/SampleReferenceGraphics.qml",
+    "qml_resources/Components/ShuttleDiagram.qml",
+    "qml_resources/Components/ShuttleGraphics.qml",
+    "qml_resources/Components/ShuttleReferenceGraphics.qml",
+    "qml_resources/Components/SideBar.qml",
+    "qml_resources/Components/SputterCoat.qml",
+    "qml_resources/Components/StagePositions.qml",
+    "qml_resources/Components/StagePositionsListView.qml",
+    "qml_resources/Components/StatusBar.qml",
+    "qml_resources/Components/TiltIndicatorArc.qml",
+    "qml_resources/Components/ToolTippedLabel.qml",
+    "qml_resources/Components/qmldir",
+    "qml_resources/Config/AppConfig.qml",
+    "qml_resources/Config/Strings.qml",
+    "qml_resources/Config/qmldir",
+    "qml_resources/Dialogs/ConfirmDialog.qml",
+    "qml_resources/Dialogs/PositionNameDialog.qml",
+    "qml_resources/Dialogs/qmldir",
+    "qml_resources/Effects/ColorOverlayEffect.qml",
+    "qml_resources/Effects/color_overlay_effect.frag.qsb",
+    "qml_resources/Effects/color_overlay_effect.vert.qsb",
+    "qml_resources/Effects/qmldir",
+    "qml_resources/Js/diagramFunctions.js",
+    "qml_resources/Js/millingAngleCalculations.js",
+    "qml_resources/Js/qmldir",
+    "qml_resources/Pages/CryoTempPrepPage.qml",
+    "qml_resources/Pages/LiftoutCalcPage.qml",
+    "qml_resources/Pages/MillingAngleCalcPage.qml",
+    "qml_resources/Pages/RoomTempPrepPage.qml",
+    "qml_resources/Pages/SessionLogPage.qml",
+    "qml_resources/Pages/Settings.qml",
+    "qml_resources/Pages/StageScanPage.qml",
+    "qml_resources/Pages/qmldir",
+    "qml_resources/main.qml",
+    "requirements.txt",
+]
