@@ -8,7 +8,7 @@ dependencies = [
 
 [tool.pyside6-project]
 files = [
-    "hydra_nsr_cryo_utilities_3.0.py",
+    "hydra_nsr_cryo_utilities.py",
     "qml_resources/Components/ActivityContainer.qml",
     "qml_resources/Components/CustomSpinBox.qml",
     "qml_resources/Components/GISDeposition.qml",

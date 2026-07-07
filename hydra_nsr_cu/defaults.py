@@ -365,7 +365,7 @@ STAGE_SAFE_RADIAL_RANGE_M: float = 8e-3   # 8 mm from chamber center
 #
 # Reader contexts differ — these are NOT all read in the same place:
 #   * DEV_FORCE_SIMULATION is read by the entry point
-#     (hydra_nsr_cryo_utilities_3.0.py); it has no effect once a client
+#     (hydra_nsr_cryo_utilities.py); it has no effect once a client
 #     (real or simulated) exists.
 #   * DEV_FORCE_UNLINKED / DEV_FORCE_STAGE_OUT_OF_RANGE are read ONLY by
 #     SimulatedStageOps (microscope/stage_ops.py) and have NO effect on

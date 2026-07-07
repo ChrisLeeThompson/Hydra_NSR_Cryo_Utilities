@@ -8,4 +8,4 @@ PySide6>=6.7.1
 #   autoscript_sdb_microscope_client — Thermo Fisher AutoScript client for the
 #   real microscope. It is proprietary, ships with the instrument's AutoScript
 #   Python environment, and is not on PyPI. It is lazy-imported, so simulation
-#   mode (python hydra_nsr_cryo_utilities_3.0.py --simulation) runs without it.
+#   mode (python hydra_nsr_cryo_utilities.py --simulation) runs without it.
