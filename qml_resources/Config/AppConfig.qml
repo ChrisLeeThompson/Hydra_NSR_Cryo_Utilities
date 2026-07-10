@@ -21,8 +21,15 @@ QtObject {
     // Compact mode is responsive: the UI switches to the compact layout
     // (subtitles hidden, header spacers collapsed) when the window is dragged to
     // or below compactBreakpointWidth/Height in either dimension.
+    // compactWindow* is the snap size applied by the Settings-page "Compact
+    // Mode" checkbox (main.qml applyCompact). Keep both dimensions at or below
+    // the breakpoints below — and mainWindow* above them — or a checkbox
+    // toggle would land on the wrong side of the cutoff and the checkbox
+    // would immediately fall out of sync with the layout.
     // compactWindowMinimum* is the ApplicationWindow's permanent floor (main.qml),
     // so the window can be shrunk into that range.
+    readonly property int compactWindowWidth: 740
+    readonly property int compactWindowHeight: 560
     readonly property int compactWindowMinimumWidth: 560
     readonly property int compactWindowMinimumHeight: 520
 

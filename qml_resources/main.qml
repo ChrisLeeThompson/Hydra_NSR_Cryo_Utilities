@@ -57,11 +57,43 @@ ApplicationWindow {
     // One-way and loop-free: reading width/height here and hiding subtitles only
     // reflows content inside the fixed window — it never changes the window size,
     // so it can't feed back across the threshold.
+    //
+    // The Settings-page "Compact Mode" checkbox rides on top of this without
+    // adding a second writer: it never sets UiState.compact — it emits
+    // UiState.compactRequested, the handler below snaps the window size, and
+    // the Binding here derives compact from the result. The checkbox itself
+    // mirrors UiState.compact, so it also tracks manual drags.
     Binding {
         target: UiState
         property: "compact"
         value: app_window.width <= AppConfig.compactBreakpointWidth
                || app_window.height <= AppConfig.compactBreakpointHeight
+    }
+
+    // Snap the window to the compact / normal footprint. Imperative (not a
+    // width/height binding): a manual user resize would replace such a
+    // binding and silently disable the toggle. Minimums never change — the
+    // permanent floor is already the compact minimum (see above).
+    function applyCompact(on) {
+        // Programmatic width/height writes are ignored while maximized or
+        // fullscreen — drop back to the normal windowed state first.
+        if (visibility === Window.Maximized || visibility === Window.FullScreen) {
+            visibility = Window.Windowed
+        }
+        if (on) {
+            width = AppConfig.compactWindowWidth
+            height = AppConfig.compactWindowHeight
+        } else {
+            width = AppConfig.mainWindowWidth
+            height = AppConfig.mainWindowHeight
+        }
+    }
+
+    Connections {
+        target: UiState
+        function onCompactRequested(on) {
+            app_window.applyCompact(on)
+        }
     }
 
     ColumnLayout {
