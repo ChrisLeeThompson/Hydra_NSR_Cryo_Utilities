@@ -58,6 +58,7 @@ from .activity_records import (
     make_default_record,
     record_from_dict,
 )
+from . import template_seeding
 from . import templates as template_io
 
 logger = logging.getLogger(__name__)
@@ -94,6 +95,11 @@ class CryoActivitiesController(QObject):
         # microscope-dependent and doesn't exist at our construction time.
         # Template save/load fail cleanly until the wire-up happens.
         self._positions: Optional[template_io.PositionsLookup] = None
+        # Copy shipped factory templates into the user-owned templates/
+        # dir (copy-if-missing, never overwrites). Done here because
+        # AppController constructs this controller before the QML engine
+        # loads, so seeding finishes before any file dialog can open.
+        template_seeding.seed_factory_templates()
         self._load_or_seed()
     
     def set_positions_lookup(
@@ -150,10 +156,12 @@ class CryoActivitiesController(QObject):
         project root). If your deployment layout differs, override this
         method or change the path computation.
 
-        The directory is not auto-created — if it doesn't exist, the
-        file dialog falls back to the OS default. First-time saves into
-        a missing ``templates/`` directory fail with an actionable
-        error; create the directory and retry.
+        The directory is created and seeded with the packaged factory
+        templates at startup by
+        :func:`template_seeding.seed_factory_templates` (copy-if-missing
+        — user files are never overwritten). If creation failed (e.g.
+        unwritable location), the file dialog falls back to the OS
+        default, and first-time saves fail with an actionable error.
         """
         project_root = Path(__file__).resolve().parent.parent.parent
         templates_dir = project_root / "templates"

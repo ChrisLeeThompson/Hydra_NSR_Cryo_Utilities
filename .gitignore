@@ -33,3 +33,7 @@ Desktop.ini
 
 # ---- App runtime data ----
 session_logs/*.jsonl
+# User-owned templates: seeded from hydra_nsr_cu/cryo/factory_templates/
+# on startup (copy-if-missing); user edits must never be tracked.
+templates/*
+!templates/.gitkeep
