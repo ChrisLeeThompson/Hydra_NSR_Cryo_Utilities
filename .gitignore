@@ -22,9 +22,10 @@ ENV/
 .coverage
 htmlcov/
 
-# Local dev tests: kept out of the published repo (the repo ships only
-# what the app needs to run).
+# Local dev tests and development docs/notes: kept out of the published
+# repo (the repo ships only what the app needs to run).
 tests/
+docs/
 
 # ---- IDE / OS ----
 .vscode/
