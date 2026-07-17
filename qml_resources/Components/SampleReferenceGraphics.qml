@@ -40,7 +40,9 @@ Item {
 
     property real stageTiltAngle: 0
     property int rotationRegime: MillingAngleCalculations.ROTATION_NEG_70
-    property var chalkLocalAngles: []
+    // Chalk lines ({ localAngleDeg, creationRegime }); owned by
+    // SampleDiagram.
+    property var chalkLines: []
 
     signal stageOrientationRequested(int rotationRegimeTarget,
                                      real tiltValue)
@@ -64,7 +66,7 @@ Item {
             var combined = []
             for (var r = 0; r < regimes.length; r++) {
                 var entries = MillingAngleCalculations.achievableTiltsForBeam(
-                    chalkLocalAngles, regimes[r], beams[i],
+                    chalkLines, regimes[r], beams[i],
                     AppConfig.stageTiltAngleMin, AppConfig.stageTiltAngleMax)
                 for (var e = 0; e < entries.length; e++) {
                     combined.push({ stageTiltDeg: entries[e].stageTiltDeg,

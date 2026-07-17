@@ -11,10 +11,13 @@ import "../Js"
 // * SampleReferenceGraphics - static beam stubs and clickable cycling
 //   labels
 //
-// This component owns the chalk line state: a list of LOCAL angles in
-// the sample-plane frame (each equal to the milling angle the line was
-// cut at - see the chalk line section of millingAngleCalculations.js).
-// Add / remove-last / clear-all are driven by the page's buttons.
+// This component owns the chalk line state: a list of
+// { localAngleDeg, creationRegime } objects - the LOCAL angle in the
+// sample-plane frame (equal to the milling angle the line was cut at)
+// tagged with the rotation regime it was cut in, so the line can be
+// mirrored when evaluated in the other regime (see the chalk line
+// section of millingAngleCalculations.js). Add / remove-last /
+// clear-all are driven by the page's buttons.
 //
 // The figure follows the calculator's canonical stage state through the
 // stageTiltAngle / rotationRegime bindings, exactly like ShuttleDiagram;
@@ -69,26 +72,33 @@ Item {
     }
 
     // --- Chalk line state ---
-    property var chalkLocalAngles: []
-    readonly property int chalkLineCount: chalkLocalAngles.length
+    property var chalkLines: []
+    readonly property int chalkLineCount: chalkLines.length
 
+    // Records the calculator's canonical rotationRegime (not the
+    // graphics layer's animation-lagged displayed regime): the local
+    // angle is computed with that same regime, so angle and tag stay
+    // consistent.
     function addChalkLine() {
-        var updated = chalkLocalAngles.slice()
-        updated.push(MillingAngleCalculations.chalkLineLocalAngleDeg(
-                         stageTiltAngle, rotationRegime))
-        chalkLocalAngles = updated
+        var updated = chalkLines.slice()
+        updated.push({
+            localAngleDeg: MillingAngleCalculations.chalkLineLocalAngleDeg(
+                               stageTiltAngle, rotationRegime),
+            creationRegime: rotationRegime
+        })
+        chalkLines = updated
     }
 
     function removeLastChalkLine() {
-        if (chalkLocalAngles.length === 0)
+        if (chalkLines.length === 0)
             return
-        var updated = chalkLocalAngles.slice()
+        var updated = chalkLines.slice()
         updated.pop()
-        chalkLocalAngles = updated
+        chalkLines = updated
     }
 
     function clearAllChalkLines() {
-        chalkLocalAngles = []
+        chalkLines = []
     }
 
     // Exposed for offscreen tests and the page wiring.
@@ -134,7 +144,7 @@ Item {
         centerY: root._centerY
         stageTiltAngle: root.stageTiltAngle
         rotationRegime: root.rotationRegime
-        chalkLocalAngles: root.chalkLocalAngles
+        chalkLines: root.chalkLines
 
     }
 
@@ -146,7 +156,7 @@ Item {
         centerY: root._centerY
         stageTiltAngle: root.stageTiltAngle
         rotationRegime: root.rotationRegime
-        chalkLocalAngles: root.chalkLocalAngles
+        chalkLines: root.chalkLines
         onStageOrientationRequested: function(rotationRegimeTarget,
                                               tiltValue) {
             root.stageOrientationRequested(rotationRegimeTarget, tiltValue)

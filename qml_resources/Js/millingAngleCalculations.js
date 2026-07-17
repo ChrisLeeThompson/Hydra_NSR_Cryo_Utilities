@@ -208,17 +208,38 @@ function sampleFaceScreenAngleDeg(stageTiltDeg, rotationRegime) {
 // -----------------------------------------------------------------------------
 //
 // Chalk lines represent FIB cuts on the sample. They live in the sample
-// plane's LOCAL frame and are stored by their local angle. The sample
-// plane item rotates by -sampleFaceScreenAngleDeg (QML clockwise
-// convention), so a line at local angle L appears on screen at the
-// global angle:
+// plane's LOCAL frame and are stored as { localAngleDeg, creationRegime }.
 //
-//     G = L + sampleFaceScreenAngleDeg(stageTilt, regime)
+// THE MIRROR RULE. The two rotation regimes are 180 degrees apart about
+// the stage-plate normal. That rotation mirrors the side-view projection
+// about the vertical, mapping an undirected line at local angle L to
+// -L (mod 180). (It is the same reflection the figures animate as the
+// squash-flip through zero width; the sample face itself already obeys
+// it: face +35 <-> -35 at tilt 0.) So a chalk line's stored local angle
+// is valid as-is only in its creation regime; evaluated in the other
+// regime it must be mirrored first - see effectiveLocalAngleDeg().
+// The mirror is independent of the stage tilt at which the operator
+// physically performs the rotation (the intermediate tilt cancels).
+//
+// A line at effective local angle E appears on screen at the global
+// angle (the sample plane item rotates by -sampleFaceScreenAngleDeg,
+// QML clockwise convention):
+//
+//     G = E + sampleFaceScreenAngleDeg(stageTilt, evalRegime)
 //
 // A chalk line is created along the FIB direction, so its local angle is
 // fibScreenAngleDeg() - sampleFaceScreenAngleDeg(...) - which by the
 // milling angle identity IS the milling angle at creation time. Every
 // chalk line therefore records the milling angle it was cut at.
+//
+// Anchor points (validated in tests/test_millingAngleCalculations.mjs
+// and by independent 3D rotation-matrix derivation):
+//     line cut at rot -70, tilt 35 has localAngleDeg 38;
+//     at rot 110 it is PARALLEL to the SEM at stage tilt +17;
+//     PERPENDICULAR to the SEM at rot 110 would need stage tilt -73
+//     (or +107) - unreachable within the stage limits;
+//     at rot 110, tilt +3 it has NO relation to the SEM (a pre-fix bug
+//     reported perpendicular there).
 //
 // Relations (parallel / perpendicular to a beam) are properties of
 // undirected lines, so all comparisons are made modulo 180 degrees.
@@ -237,12 +258,36 @@ function chalkLineLocalAngleDeg(stageTiltDeg, rotationRegime) {
            - sampleFaceScreenAngleDeg(stageTiltDeg, rotationRegime)
 }
 
+// Normalize an undirected line angle into [0, 180).
+function normalizeLineAngleDeg(angleDeg) {
+    return ((angleDeg % 180) + 180) % 180
+}
+
+// Local angle of the same physical line viewed in the OTHER regime
+// (the mirror rule - see the section comment above).
+function mirroredLocalAngleDeg(localAngleDeg) {
+    return normalizeLineAngleDeg(-localAngleDeg)
+}
+
+// Effective local angle of a stored chalk line when evaluated in
+// evalRegime: identity in its creation regime, mirrored in the other.
+// preTiltSign() validates both regime arguments (throws on unknown).
+function effectiveLocalAngleDeg(localAngleDeg, creationRegime,
+                                evalRegime) {
+    preTiltSign(creationRegime)
+    preTiltSign(evalRegime)
+    if (creationRegime === evalRegime)
+        return normalizeLineAngleDeg(localAngleDeg)
+    return mirroredLocalAngleDeg(localAngleDeg)
+}
+
 // Screen-frame (global) angle of a chalk line at the given stage
 // orientation.
-function chalkLineGlobalAngleDeg(localAngleDeg, stageTiltDeg,
-                                 rotationRegime) {
-    return localAngleDeg
-           + sampleFaceScreenAngleDeg(stageTiltDeg, rotationRegime)
+function chalkLineGlobalAngleDeg(localAngleDeg, creationRegime,
+                                 stageTiltDeg, evalRegime) {
+    return effectiveLocalAngleDeg(localAngleDeg, creationRegime,
+                                  evalRegime)
+           + sampleFaceScreenAngleDeg(stageTiltDeg, evalRegime)
 }
 
 // Screen angle of a beam by name ("SEM" / "FIB" / "GIS").
@@ -264,13 +309,13 @@ function lineAngleDifferenceDeg(angleADeg, angleBDeg) {
     return Math.min(d, 180 - d)
 }
 
-// Relation of a chalk line (by local angle) to a beam at the given
-// stage orientation: RELATION_PARALLEL, RELATION_PERPENDICULAR, or
-// RELATION_NONE.
-function chalkLineRelation(localAngleDeg, stageTiltDeg, rotationRegime,
-                           beamName) {
-    var g = chalkLineGlobalAngleDeg(localAngleDeg, stageTiltDeg,
-                                    rotationRegime)
+// Relation of a chalk line (stored local angle + creation regime) to a
+// beam at the given stage orientation: RELATION_PARALLEL,
+// RELATION_PERPENDICULAR, or RELATION_NONE.
+function chalkLineRelation(localAngleDeg, creationRegime, stageTiltDeg,
+                           evalRegime, beamName) {
+    var g = chalkLineGlobalAngleDeg(localAngleDeg, creationRegime,
+                                    stageTiltDeg, evalRegime)
     var d = lineAngleDifferenceDeg(g, beamScreenAngleDeg(beamName))
     if (d <= RELATION_TOLERANCE_DEG)
         return RELATION_PARALLEL
@@ -280,15 +325,15 @@ function chalkLineRelation(localAngleDeg, stageTiltDeg, rotationRegime,
 }
 
 // All stage tilts within [tiltMinDeg, tiltMaxDeg] at which the chalk
-// line (by local angle) attains the given relation to the beam, in the
-// given rotation regime. Solving
-//     localAngle + face(t) = beamAngle + offset + k * 180
+// line (stored local angle + creation regime) attains the given
+// relation to the beam, evaluated in evalRegime. Solving
+//     effectiveLocal + face(t) = beamAngle + offset + k * 180
 // with face(t) = -preTiltSign * 35 - t gives
-//     t = localAngle - preTiltSign * 35 - beamAngle - offset - k * 180.
+//     t = effectiveLocal - preTiltSign * 35 - beamAngle - offset - k * 180.
 // The stage tilt range spans less than 180 degrees, so at most one k
 // yields an in-range solution per relation.
-function achievableTiltsForRelation(localAngleDeg, rotationRegime,
-                                    beamName, relation,
+function achievableTiltsForRelation(localAngleDeg, creationRegime,
+                                    evalRegime, beamName, relation,
                                     tiltMinDeg, tiltMaxDeg) {
     var offset
     if (relation === RELATION_PARALLEL)
@@ -298,8 +343,9 @@ function achievableTiltsForRelation(localAngleDeg, rotationRegime,
     else
         throw new Error("Unknown relation: " + relation)
 
-    var base = localAngleDeg
-               - preTiltSign(rotationRegime) * SHUTTLE_PRE_TILT_DEG
+    var base = effectiveLocalAngleDeg(localAngleDeg, creationRegime,
+                                      evalRegime)
+               - preTiltSign(evalRegime) * SHUTTLE_PRE_TILT_DEG
                - beamScreenAngleDeg(beamName)
                - offset
     var tilts = []
@@ -312,20 +358,21 @@ function achievableTiltsForRelation(localAngleDeg, rotationRegime,
 }
 
 // Combined, sorted cycle list for one beam over a set of chalk lines
-// (array of local angles) in the given regime: every achievable
-// { stageTiltDeg, relation } within the tilt limits, deduplicated
-// (0.01 degree tolerance) and sorted ascending by tilt. This is the
-// list a beam-label click cycles through. Cross-regime cycling (a
-// possible future extension) is this same function called once per
-// regime.
-function achievableTiltsForBeam(localAnglesDeg, rotationRegime,
+// (array of { localAngleDeg, creationRegime }) evaluated in the given
+// regime: every achievable { stageTiltDeg, relation } within the tilt
+// limits, deduplicated (0.01 degree tolerance) and sorted ascending by
+// tilt. This is the list a beam-label click cycles through; the chips
+// in SampleReferenceGraphics call it once per regime with the same
+// tagged lines to cover both regimes.
+function achievableTiltsForBeam(chalkLines, evalRegime,
                                 beamName, tiltMinDeg, tiltMaxDeg) {
     var entries = []
     var relations = [RELATION_PERPENDICULAR, RELATION_PARALLEL]
-    for (var i = 0; i < localAnglesDeg.length; i++) {
+    for (var i = 0; i < chalkLines.length; i++) {
         for (var r = 0; r < relations.length; r++) {
             var tilts = achievableTiltsForRelation(
-                localAnglesDeg[i], rotationRegime, beamName,
+                chalkLines[i].localAngleDeg, chalkLines[i].creationRegime,
+                evalRegime, beamName,
                 relations[r], tiltMinDeg, tiltMaxDeg)
             for (var j = 0; j < tilts.length; j++) {
                 var duplicate = false

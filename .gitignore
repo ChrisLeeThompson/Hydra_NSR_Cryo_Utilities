@@ -22,10 +22,15 @@ ENV/
 .coverage
 htmlcov/
 
+# Local dev tests: kept out of the published repo (the repo ships only
+# what the app needs to run).
+tests/
+
 # ---- IDE / OS ----
 .vscode/
 .idea/
 .qtcreator/
+.claude/
 *.swp
 Thumbs.db
 Desktop.ini

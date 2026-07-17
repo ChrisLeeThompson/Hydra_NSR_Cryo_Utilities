@@ -12,12 +12,16 @@ import "../Js"
 // so the figure's angles match the shuttle diagram, including the
 // rotation regime.
 //
-// Chalk lines represent FIB cuts. They are stored as LOCAL angles in
-// the sample-plane frame (owned by SampleDiagram); by the milling angle
-// identity, each stored angle IS the milling angle the line was cut at.
-// Lines pass through the figure center and are clipped to the union of
-// the sample and grid rectangles. Lines are recolored when they are
-// currently perpendicular or parallel to any beam.
+// Chalk lines represent FIB cuts. They are stored (owned by
+// SampleDiagram) as { localAngleDeg, creationRegime }: the LOCAL angle
+// in the sample-plane frame (by the milling angle identity, the milling
+// angle the line was cut at) plus the regime it was cut in. When shown
+// in the other regime the angle is mirrored (the 180-degree stage
+// rotation reflects the side view - effectiveLocalAngleDeg() in
+// millingAngleCalculations.js). Lines pass through the figure center
+// and are clipped to the union of the sample and grid rectangles.
+// Lines are recolored when they are currently perpendicular or
+// parallel to any beam.
 //
 // An optional preview line (shown while the user hovers the "Add chalk
 // line" button) draws faintly along the FIB direction, showing where
@@ -35,9 +39,9 @@ Item {
     property real stageTiltAngle: 0
     property int rotationRegime: MillingAngleCalculations.ROTATION_NEG_70
 
-    // Local (sample-frame) angles of the chalk lines; owned by
+    // Chalk lines ({ localAngleDeg, creationRegime }); owned by
     // SampleDiagram.
-    property var chalkLocalAngles: []
+    property var chalkLines: []
 
     // Faint preview of the next chalk line (along the FIB direction).
     property bool previewVisible: false
@@ -132,11 +136,19 @@ Item {
             ctx.strokeRect(cx - gw / 2, gridCenterY - gh / 2, gw, gh)
 
             // --- Chalk lines ---
+            // Drawn at the effective local angle for the DISPLAYED
+            // regime so lines mirror together with the plane through
+            // the flip animation.
             ctx.lineWidth = AppConfig.sampleFigureChalkLineWidth
-            for (var i = 0; i < root.chalkLocalAngles.length; i++) {
-                var local = root.chalkLocalAngles[i]
-                ctx.strokeStyle = root._chalkColor(local)
-                root._strokeClippedLine(ctx, local, 1.0)
+            for (var i = 0; i < root.chalkLines.length; i++) {
+                var line = root.chalkLines[i]
+                ctx.strokeStyle = root._chalkColor(line)
+                root._strokeClippedLine(
+                    ctx,
+                    MillingAngleCalculations.effectiveLocalAngleDeg(
+                        line.localAngleDeg, line.creationRegime,
+                        root._displayedRegime),
+                    1.0)
             }
 
             // --- Preview of the next cut (along the FIB) ---
@@ -156,12 +168,15 @@ Item {
 
     // Color for a chalk line based on its current relation to any beam:
     // perpendicular wins over parallel wins over the default color.
-    function _chalkColor(localAngleDeg) {
+    // Uses the canonical rotationRegime (not _displayedRegime) so the
+    // highlight reports the true physical relation.
+    function _chalkColor(line) {
         var beams = ["SEM", "FIB", "GIS"]
         var parallel = false
         for (var i = 0; i < beams.length; i++) {
             var rel = MillingAngleCalculations.chalkLineRelation(
-                localAngleDeg, stageTiltAngle, rotationRegime, beams[i])
+                line.localAngleDeg, line.creationRegime,
+                stageTiltAngle, rotationRegime, beams[i])
             if (rel === MillingAngleCalculations.RELATION_PERPENDICULAR)
                 return AppConfig.perpendicularHighlightColor
             if (rel === MillingAngleCalculations.RELATION_PARALLEL)
@@ -210,7 +225,7 @@ Item {
         ctx.stroke()
     }
 
-    onChalkLocalAnglesChanged: canvas.requestPaint()
+    onChalkLinesChanged: canvas.requestPaint()
     onStageTiltAngleChanged: canvas.requestPaint()
     on_DisplayedRegimeChanged: canvas.requestPaint()
     onPreviewVisibleChanged: canvas.requestPaint()

@@ -124,6 +124,9 @@ def main(argv: list[str] | None = None) -> int:
     engine.quit.connect(app.quit)
     engine.addImportPath(str(base_dir / "qml_resources"))
     engine.rootContext().setContextProperty("appController", app_controller)
+    # Single source of truth for the version shown in the window title:
+    # the package __version__ (also used by the CLI help and logs).
+    engine.rootContext().setContextProperty("appVersion", __version__)
 
     engine.load(str(base_dir / "qml_resources" / "main.qml"))
     if not engine.rootObjects():
