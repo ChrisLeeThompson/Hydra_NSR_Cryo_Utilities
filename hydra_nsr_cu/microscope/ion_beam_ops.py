@@ -40,6 +40,7 @@ rest of this module.
 from __future__ import annotations
 
 import logging
+import math
 from typing import Any, List
 
 logger = logging.getLogger(__name__)
@@ -278,10 +279,23 @@ class SimulatedIonBeamOps:
 
     @scan_rotation_rad.setter
     def scan_rotation_rad(self, value: float) -> None:
+        value = float(value)
+        # Mirror the real hardware's input domain. AutoScript's
+        # scanning.rotation rejects writes outside [0, 2π) — observed
+        # on hardware, where a write of exactly 2π raised "specified
+        # value is out of range". Enforcing the same domain here makes
+        # out-of-range writes fail in simulation instead of passing
+        # silently (which is how the unwrapped +π scan-rotate-after
+        # bug shipped in 3.0.1).
+        if not 0.0 <= value < math.tau:
+            raise ValueError(
+                f"Specified value is out of range: {value!r} rad "
+                "(scan rotation accepts [0, 2*pi))"
+            )
         logger.info(
             "Simulated ion beam: setting scan rotation to %.4f rad", value,
         )
-        self._scan_rotation_rad = float(value)
+        self._scan_rotation_rad = value
 
 
 # Type alias for callers that accept either implementation.

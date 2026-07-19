@@ -63,7 +63,9 @@ The rotation worker's optional :data:`PHASE_SCAN_ROTATE_AFTER` phase
 runs when ``scanRotateAfterRotation`` is checked. It calls
 :meth:`_rotate_scan_by_180`, which adds π radians to whatever the
 current scan rotation is on each beam — *not* an absolute set to 0
-or π.
+or π — and wraps the sum into [0, 2π) before writing, because
+AutoScript's ``scanning.rotation`` rejects values outside that
+range.
 
 The additive-delta contract is the right one because the chained
 phase's job is to compensate for the 180° physical rotation that
@@ -73,7 +75,11 @@ the scan rotation flips it back, regardless of what the scan
 rotation value was beforehand. If the user had a non-canonical
 starting value (e.g. 30°), the chain produces 30° + 180° = 210° —
 still mathematically correct as a compensating flip, even if the
-read-back value is unusual.
+read-back value is unusual. The wrap changes nothing semantically
+(rotation is periodic in 2π); it only keeps the written value in
+AutoScript's accepted domain — from the common π starting point the
+chain lands back at 0 rather than attempting 2π, which the hardware
+would reject.
 
 The two explicit setter Slots (:meth:`set_scan_rotation_to_0` and
 :meth:`set_scan_rotation_to_180`) are the user's escape hatch for
@@ -135,6 +141,26 @@ from ..settings.settings_controller import SettingsController
 from .z_safety_gate import ZSafetyGate
 
 logger = logging.getLogger(__name__)
+
+
+# --- Angle helpers ------------------------------------------------------
+
+
+def _wrap_scan_rotation_rad(angle_rad: float) -> float:
+    """Wrap an angle into AutoScript's accepted scan-rotation domain [0, 2π).
+
+    AutoScript's ``scanning.rotation`` rejects writes outside [0, 2π)
+    with "specified value is out of range". Wrapping is lossless for a
+    rotation (periodic in 2π), so canonicalizing here changes nothing
+    physically.
+    """
+    wrapped = angle_rad % math.tau
+    # Float edge: for a tiny negative input (e.g. -1e-20), Python's
+    # modulo computes tau - 1e-20, which rounds to exactly math.tau —
+    # outside [0, 2π). Guard it back to the canonical 0.0.
+    if wrapped >= math.tau:
+        wrapped = 0.0
+    return wrapped
 
 
 # --- Phase planning -----------------------------------------------------
@@ -334,10 +360,10 @@ class _StageRotateWorker(QObject):
             stage.absolute_move(stage.make_position(t=phase.tilt_rad))
         elif phase.kind == PHASE_SCAN_ROTATE_AFTER:
             # Reuses the controller's additive-delta helper. The
-            # contract is "add π to both beams" — see the module
-            # docstring's "Chained scan rotate after rotation
-            # contract" section. Unconditional; any AutoScript
-            # exception fails the phase normally.
+            # contract is "add π to both beams, wrapped into
+            # [0, 2π)" — see the module docstring's "Chained scan
+            # rotate after rotation contract" section. Unconditional;
+            # any AutoScript exception fails the phase normally.
             self._rotate_scan_by_180()
         else:
             raise ValueError(f"Unknown rotation phase kind: {phase.kind!r}")
@@ -801,7 +827,7 @@ class StageScanController(QObject):
         )
 
     def _rotate_scan_by_180(self) -> None:
-        """Add π radians to both SEM and FIB scan rotation.
+        """Add π radians to both SEM and FIB scan rotation, wrapped to [0, 2π).
 
         Additive-delta helper used by the rotation worker's optional
         "scan rotate after rotation" chained phase. The contract is
@@ -809,14 +835,22 @@ class StageScanController(QObject):
         happened" — the imaging frame inverts on a 180° stage
         rotation, and adding 180° to scan rotation flips it back.
 
+        The sum is wrapped into [0, 2π) via
+        :func:`_wrap_scan_rotation_rad` before writing: AutoScript
+        rejects values outside that range, and the common π starting
+        point (after a prior flip or the "Scan Rotate to 180" button)
+        would otherwise produce a raw target of 2π and fail the phase
+        with "specified value is out of range". Wrapping is lossless
+        for a rotation: π + π → 0, 30° + 180° → 210°.
+
         See the module docstring's "Chained scan rotate after rotation
         contract" section for the broader rationale and read-back
         normalization story.
         """
         sem_current = self._microscope.electron_beam.scan_rotation_rad
         fib_current = self._microscope.ion_beam.scan_rotation_rad
-        sem_target = sem_current + math.pi
-        fib_target = fib_current + math.pi
+        sem_target = _wrap_scan_rotation_rad(sem_current + math.pi)
+        fib_target = _wrap_scan_rotation_rad(fib_current + math.pi)
         logger.info(
             "Scan rotate +180°: SEM %.4f → %.4f rad; FIB %.4f → %.4f rad",
             sem_current, sem_target, fib_current, fib_target,
