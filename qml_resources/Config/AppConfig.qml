@@ -29,9 +29,9 @@ QtObject {
     // compactWindowMinimum* is the ApplicationWindow's permanent floor (main.qml),
     // so the window can be shrunk into that range.
     readonly property int compactWindowWidth: 740
-    readonly property int compactWindowHeight: 560
+    readonly property int compactWindowHeight: 510
     readonly property int compactWindowMinimumWidth: 560
-    readonly property int compactWindowMinimumHeight: 520
+    readonly property int compactWindowMinimumHeight: 500
 
     // Responsive cutoff — tune these to move where the compact layout engages.
     readonly property int compactBreakpointWidth: 760
