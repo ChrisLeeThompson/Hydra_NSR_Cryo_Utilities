@@ -46,10 +46,10 @@ Item {
         Label {
 
             visible: !UiState.compact
-            text: "This milling angle calculator is designed to assist with visualizing milling angles and "
-                  + "stage tilt angles for a 35 degrees pre-tilted shuttle. The diagrams are intended to be illustrative rather than conveying precise dimensions. For example, "
-                  + "the GIS position shown does not consider the angle between the GIS and the FIB along the z axis "
-                  + "(where the z axis is pointing out of the board)."
+            text: "Visualizes milling angles and stage tilt angles for a 35° pre-tilted shuttle. "
+                  + "The diagrams are illustrative rather than dimensionally precise — for example, "
+                  + "the GIS position shown ignores the angle between the GIS and the FIB along the Z axis "
+                  + "(Z pointing out of the screen)."
             font.pixelSize: AppConfig.pageBodyFontSize
             Layout.fillWidth: true
             wrapMode: Label.WordWrap

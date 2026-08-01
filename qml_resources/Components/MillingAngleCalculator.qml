@@ -220,7 +220,7 @@ GroupBox {
 
                 id: negativeSeventyRotateButton
                 radius: AppConfig.buttonRadius
-                text: "-70°"
+                text: "−70°"
                 checkable: true
                 autoExclusive: true
                 highlighted: checked

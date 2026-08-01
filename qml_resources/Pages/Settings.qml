@@ -46,7 +46,7 @@ Item {
             // Label yields its slot in the ColumnLayout, so the header
             // reflows with no gap.
             visible: !UiState.compact
-            text: "Persistent script settings."
+            text: "Settings are saved automatically and persist between sessions."
             font.pixelSize: AppConfig.pageBodyFontSize
             Layout.fillWidth: true
             wrapMode: Label.WordWrap

@@ -286,9 +286,9 @@ GroupBox {
             Layout.columnSpan: 2
             Layout.fillWidth: true
             model: ListModel {
-                ListElement { name: "Top-down: -70" }
-                ListElement { name: "Planar: -70" }
-                ListElement { name: "Planar: 110" }
+                ListElement { name: "Top-down: −70°" }
+                ListElement { name: "Planar: −70°" }
+                ListElement { name: "Planar: 110°" }
             }
 
             // Type switch saves the outgoing type's values and loads
@@ -311,7 +311,7 @@ GroupBox {
             Layout.row: 2
             Layout.column: 0
             text: "Shuttle Pre-tilt Angle"
-            toolTipText: Strings.shuttlePretiltAngleLabelToolTip
+            toolTipText: Strings.shuttlePretiltAngleLabelTooltip
 
         }
 
@@ -375,7 +375,7 @@ GroupBox {
             Layout.row: 4
             Layout.column: 0
             text: "Lift-in Tilt Angle"
-            toolTipText: Strings.attachTiltAngleLabelToolTip
+            toolTipText: Strings.attachTiltAngleLabelTooltip
 
         }
 
@@ -411,7 +411,7 @@ GroupBox {
             Layout.row: 6
             Layout.column: 0
             text: "Stage Tilt Angle"
-            toolTipText: Strings.fibStageTiltAngleLabelToolTip
+            toolTipText: Strings.fibStageTiltAngleLabelTooltip
 
         }
 
@@ -425,15 +425,15 @@ GroupBox {
 
         }
 
-        // ---- Row 7: FIB Milling Angle (-70) (calculated) ----
+        // ---- Row 7: FIB Milling Angle (−70°) (calculated) ----
 
         ToolTippedLabel {
 
             id: fibMillingAngleLabel
             Layout.row: 7
             Layout.column: 0
-            text: "FIB Milling Angle (-70)"
-            toolTipText: Strings.fibMillingAngleLabelToolTip
+            text: "FIB Milling Angle (−70°)"
+            toolTipText: Strings.fibMillingAngleLabelTooltip
 
         }
 
@@ -447,15 +447,15 @@ GroupBox {
 
         }
 
-        // ---- Row 8: SEM Tilt Angle (-70) (calculated) ----
+        // ---- Row 8: SEM Tilt Angle (−70°) (calculated) ----
 
         ToolTippedLabel {
 
             id: semTiltAngleLabel
             Layout.row: 8
             Layout.column: 0
-            text: "SEM Tilt Angle (-70)"
-            toolTipText: Strings.semTiltAngleLabelToolTip
+            text: "SEM Tilt Angle (−70°)"
+            toolTipText: Strings.semTiltAngleLabelTooltip
 
         }
 

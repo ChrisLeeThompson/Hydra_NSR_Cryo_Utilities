@@ -33,12 +33,10 @@ Item {
         Label {
 
             visible: !UiState.compact
-            text: "This lift-out calculator is designed to assist with determining stage tilt angles"
-            + " for cryo lift-out procedures.<br><br>"
-            + "<b>Note:</b> some of the calculated angles may result in collision between the EasyLift"
-            + " needle and shuttle or AutoGrid. To avoid potential collisions (and ensure the angles will"
-            + " work with your sample), it is recommended to test angles without a sample attached to the"
-            + " EasyLift, and optimize the lift-out tilt angles and attach tilt angles for your applications."
+            text: "Calculates stage tilt angles for cryo lift-out procedures.<br><br>"
+            + "<b>Note:</b> some calculated angles may cause a collision between the EasyLift"
+            + " needle and the shuttle or AutoGrid. Test angles without a sample attached to the"
+            + " EasyLift, then optimize the lift-out and attach tilt angles for your application."
             font.pixelSize: AppConfig.pageBodyFontSize
             Layout.fillWidth: true
             wrapMode: Label.WordWrap

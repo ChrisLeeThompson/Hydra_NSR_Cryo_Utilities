@@ -78,7 +78,7 @@ Item {
 
         Label {
 
-            text: "Stage/Scan Rotation and Stage Z"
+            text: "Stage / Scan Rotation and Stage Z"
             font.pixelSize: AppConfig.pageHeadingFontSize
             font.bold: true
 
@@ -87,11 +87,12 @@ Item {
         Label {
 
             visible: !UiState.compact
-            text: "These functions can be used to rotate the stage 180°, scan rotate the SEM and FIB, and adjust the stage z height (with Z-Y Link enabled)."
-                  + "<br><br><b>Note:</b> the stage rotation and z height functions are not aware of the position of the stage relative to the SEM or FIB polepieces, or the iFLM objective."
+            text: "Rotate the stage 180°, scan rotate the SEM and FIB, and adjust the stage Z height (with Z-Y Link enabled)."
+                  + "<br><br><b>Note:</b> stage rotation and Z height are not aware of the stage position relative to the SEM or FIB pole pieces, or the iFLM objective."
             font.pixelSize: AppConfig.pageBodyFontSize
             Layout.fillWidth: true
             wrapMode: Label.WordWrap
+            textFormat: Text.StyledText
 
         }
 
@@ -527,7 +528,9 @@ Item {
 
                             ColumnLayout {
                                 Layout.fillWidth: true
-                                spacing: 2
+                                // 6, not 2: the title string used to carry a
+                                // trailing "\n" that supplied most of this gap.
+                                spacing: 6
 
                                 Label {
                                     text: Strings.stageZSafetyTitle

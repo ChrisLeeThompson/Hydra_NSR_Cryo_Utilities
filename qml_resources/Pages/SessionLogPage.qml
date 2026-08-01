@@ -58,8 +58,8 @@ Item {
         Label {
 
             visible: !UiState.compact
-            text: "RT Prep and Cryo Prep activity information is saved to a session log file and presented here."
-                + " Notes for each session can be added/edited. The session log file can be deleted from the Settings page."
+            text: "Activity information from RT Prep and Cryo Prep runs is recorded here."
+                + " Add or edit a note on any session. Clear the log from the Settings page."
             font.pixelSize: AppConfig.pageBodyFontSize
             Layout.fillWidth: true
             wrapMode: Label.WordWrap

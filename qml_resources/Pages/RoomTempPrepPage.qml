@@ -164,9 +164,9 @@ Item {
         Label {
 
             visible: !UiState.compact
-            text: "Activities for preparing the Hydra NSR for cryo applications. "
-                + "These are intended to be used when the stage is at room temperature. "
-                + "Activities begin from the top of the list."
+            text: "Activities for preparing the Hydra NSR for cryo work, intended for use "
+                + "while the stage is at room temperature. "
+                + "Activities run from the top of the list down."
             font.pixelSize: AppConfig.pageBodyFontSize
             Layout.fillWidth: true
             wrapMode: Label.WordWrap

@@ -708,9 +708,9 @@ Item {
 
         Label {
             visible: !UiState.compact
-            text: "Activities intended to be used when the stage is at cryo "
-                + "temperatures. Activities begin from the top of the list. "
-                + "Drag the handle on the left of an activity to reorder it."
+            text: "Activities intended for use while the stage is at cryo "
+                + "temperature. They run from the top of the list down; "
+                + "drag the handle on an activity's left edge to reorder it."
             font.pixelSize: AppConfig.pageBodyFontSize
             Layout.fillWidth: true
             wrapMode: Label.WordWrap
