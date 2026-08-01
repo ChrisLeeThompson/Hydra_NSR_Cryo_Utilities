@@ -102,6 +102,7 @@ and no PFIB capture happens.
 from __future__ import annotations
 
 import logging
+import time
 from typing import List, Optional, Set
 
 from PySide6.QtCore import (
@@ -112,7 +113,7 @@ from PySide6.QtCore import (
 )
 
 from .. import defaults
-from ..activities.base import ActivityService, StatusCallback
+from ..activities.base import ActivityResult, ActivityService, StatusCallback
 from ..activities.gis_deposition import GISDepositionService
 from ..activities.home_stage import HomeStageService
 from ..activities.pattern_file import resolve_pattern_path
@@ -127,8 +128,10 @@ from ..cryo.controller import CryoActivitiesController
 from ..microscope import MicroscopeClientLike
 from ..microscope.ion_beam_ops import resolve_plasma_gas_enum
 from ..microscope.recorders.pfib_conditions import (
+    ABANDONED_FIELD,
     PFIBConditionsRecorder,
     PFIBConditionsSnapshot,
+    RestoreFailure,
 )
 from ..microscope.recorders.stage_position import (
     StagePositionSnapshot,
@@ -142,10 +145,66 @@ from ..pre_start_checks import (
 )
 from ..settings.settings_controller import SettingsController
 from ..stage_positions.controller import StagePositionsController
-from .runner import PreStartValidationResult, WorkflowRunner
+from .runner import (
+    PreStartValidationResult,
+    WorkflowRunner,
+    build_abandon_predicate,
+)
 from .settings_snapshot import WorkflowSettingsSnapshot
 
 logger = logging.getLogger(__name__)
+
+
+def _compose_pfib_restore_warning(failures: List[RestoreFailure]) -> str:
+    """Short user-facing summary of a partial/failed PFIB restore.
+
+    Folded into the final status-bar text by the runner, so it has to
+    stay one line. Shapes:
+
+    * abandoned:  ``"PFIB restore abandoned before completion"``
+    * one field:  ``"PFIB restore failed (beam on/off):
+      ApplicationServerException: Wait for beam to turn on timed out"``
+    * multiple:   fields listed, first error only, the rest deferred
+      to the console log.
+    """
+    if any(f.field == ABANDONED_FIELD for f in failures):
+        return "PFIB restore abandoned before completion"
+    fields = ", ".join(f.field for f in failures)
+    suffix = " (see console log for the rest)" if len(failures) > 1 else ""
+    return f"PFIB restore failed ({fields}): {failures[0].error}{suffix}"
+
+
+def _build_pfib_restore_record(
+    failures: List[RestoreFailure],
+    *,
+    restore_species: bool,
+    restore_beam_electrical: bool,
+    duration_s: float,
+) -> dict:
+    """Synthetic session-log record for a failed/abandoned PFIB restore.
+
+    The key set is the contract consumed (with bare subscripts) by
+    :meth:`WorkflowRunner._on_finished` when it emits the record
+    through ``activityRecorded`` — pinned by a producer→consumer test
+    in tests/test_pfib_restore_recovery.py so a rename on either side
+    fails fast rather than only on a rare failure path in the field.
+    """
+    abandoned = any(f.field == ABANDONED_FIELD for f in failures)
+    return {
+        "activity_id": "pfib_restore",
+        # A user abandon is a stop, not a hardware failure.
+        "result": (
+            ActivityResult.STOP.value if abandoned
+            else ActivityResult.EXCEPTION.value
+        ),
+        "duration_s": duration_s,
+        "last_status": _compose_pfib_restore_warning(failures),
+        "params": {
+            "restore_ion_species": restore_species,
+            "restore_voltage_current": restore_beam_electrical,
+            "failed_fields": ", ".join(f.field for f in failures),
+        },
+    }
 
 
 class CPWorkflow(WorkflowRunner):
@@ -776,6 +835,12 @@ class CPWorkflow(WorkflowRunner):
                     "CPWorkflow: PFIB capture failed; proceeding without restore"
                 )
                 self._pfib_snapshot = None
+                # Surfaced in the final status text by _on_finished so
+                # the skipped restore isn't silent at workflow end.
+                self._after_run_warning = (
+                    "PFIB capture failed — conditions were not restored "
+                    "(see console log)"
+                )
 
         if self._stage_recorder is not None:
             on_status("Capturing stage position...")
@@ -810,6 +875,12 @@ class CPWorkflow(WorkflowRunner):
         unconditionally at the end so nothing leaks into a subsequent
         run, regardless of which restores fired.
         """
+        # Latched Stop-press abandon semantics for ALL cleanup in this
+        # hook (PFIB restore and stage restore) — see the helper.
+        should_abandon = build_abandon_predicate(
+            self._stop_event, self._abandon_event,
+        )
+
         # PFIB conditions — unconditional (every exit path).
         if self._pfib_recorder is not None and self._pfib_snapshot is not None:
             restore_vc = self._settings_snapshot.restore_pfib_voltage_current
@@ -827,20 +898,59 @@ class CPWorkflow(WorkflowRunner):
                 on_status("Restoring PFIB voltage and current...")
             elif restore_sp:
                 on_status("Restoring PFIB ion species...")
+            t0_restore = time.monotonic()
             try:
-                self._pfib_recorder.restore(
+                failures = self._pfib_recorder.restore(
                     self._pfib_snapshot,
                     restore_species=restore_sp,
                     restore_beam_electrical=restore_vc,
+                    should_abandon=should_abandon,
                 )
-            except Exception:
+            except Exception as exc:
+                # restore() reports per-field hardware failures via its
+                # return value; reaching here means a bug in the
+                # restore machinery itself. Keep the guard (an
+                # after_run failure must never mask the workflow
+                # result) but surface it the same way.
                 logger.exception(
-                    "CPWorkflow: PFIB restore failed; activity sequence "
-                    "complete but conditions may not have been fully restored"
+                    "CPWorkflow: PFIB restore raised unexpectedly; "
+                    "conditions may not have been fully restored"
+                )
+                failures = [RestoreFailure(
+                    field="restore",
+                    error=f"{type(exc).__name__}: {exc}",
+                )]
+            restore_duration_s = time.monotonic() - t0_restore
+
+            if failures:
+                # Read by _on_finished on the GUI thread after the
+                # worker's queued `finished` emit — ordering
+                # guaranteed; see the attribute declarations in
+                # WorkflowRunner.__init__.
+                self._after_run_warning = _compose_pfib_restore_warning(
+                    failures,
+                )
+                self._after_run_record = _build_pfib_restore_record(
+                    failures,
+                    restore_species=restore_sp,
+                    restore_beam_electrical=restore_vc,
+                    duration_s=restore_duration_s,
                 )
 
-        # Stage position — success only.
-        if completed:
+        # Stage position — success only, and never after an abandon:
+        # commanding stage motion right after the user asked to
+        # abandon cleanup would contradict the request (and the same
+        # Stop-safety rationale that skips it on the stop path).
+        if completed and should_abandon():
+            logger.warning(
+                "CPWorkflow: cleanup abandoned; skipping stage-position "
+                "restore"
+            )
+            if not self._after_run_warning:
+                self._after_run_warning = (
+                    "Cleanup abandoned — stage position not restored"
+                )
+        elif completed:
             if (self._stage_recorder is not None
                     and self._stage_snapshot is not None):
                 on_status("Returning stage to original position...")

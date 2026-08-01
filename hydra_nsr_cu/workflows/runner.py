@@ -136,6 +136,49 @@ logger = logging.getLogger(__name__)
 # on timeout we log and proceed with teardown.
 _SHUTDOWN_JOIN_TIMEOUT_MS = 5000
 
+# Second, short join granted by :meth:`WorkflowRunner.wait_for_stop`
+# AFTER the main join budget expires and the abandon event has been
+# set. The after_run settle polls re-check abandon at ~1 s granularity
+# (sliced sleeps — see pfib_conditions._settle_poll), so a stuck
+# cleanup normally exits well within this grace window.
+_ABANDON_GRACE_JOIN_MS = 2000
+
+
+def build_abandon_predicate(
+    stop_event: Optional[threading.Event],
+    abandon_event: Optional[threading.Event],
+) -> Callable[[], bool]:
+    """Build the ``should_abandon`` predicate for after_run cleanup work.
+
+    The raw stop_event can't mean "abandon" — on the stop exit path
+    it is already set, and cleanup (e.g. the CP workflow's PFIB
+    restore) deliberately still runs. Its state is latched at build
+    time (cleanup entry) instead:
+
+    * completed/exception path (stop not yet set): a FIRST Stop press
+      during cleanup abandons it — nothing else is running, that's
+      clearly the user's intent.
+    * stop path (stop already set): cleanup runs; a SECOND Stop press
+      sets the runner's abandon event (see :meth:`WorkflowRunner.stop`)
+      and abandons it.
+
+    Both events are aliased here rather than read through the runner:
+    the runner nulls the attributes on the GUI thread after the worker
+    finishes, and the predicate is called from the worker thread.
+    """
+    stop_already_set = stop_event.is_set() if stop_event is not None else False
+
+    def should_abandon() -> bool:
+        if abandon_event is not None and abandon_event.is_set():
+            return True
+        return (
+            stop_event is not None
+            and stop_event.is_set()
+            and not stop_already_set
+        )
+
+    return should_abandon
+
 
 def _format_duration(seconds: float) -> str:
     """Render an elapsed-time duration for the status bar.
@@ -311,7 +354,7 @@ class _WorkflowWorker(QObject):
     # Forwarded to the StatusBar text: short human-readable status.
     statusUpdated = Signal(str)
 
-    # Emitted once the entire workflow is done. Two args:
+    # Emitted once the entire workflow is done. Three args:
     #   all_complete       — True if every activity completed normally;
     #                        False if any was stopped or raised, or if
     #                        the loop exited early via a None fetch.
@@ -327,7 +370,15 @@ class _WorkflowWorker(QObject):
     #                        for log forensics; the runner only
     #                        surfaces it in the status bar on the
     #                        success path.
-    finished = Signal(bool, float)
+    #   ended_by_exception — True iff the loop broke because an
+    #                        activity RAISED uncaught. The runner needs
+    #                        this to pick the final status-bar branch;
+    #                        it cannot be derived from the stop event,
+    #                        because a Stop press during the after_run
+    #                        cleanup (the abandon gesture) sets the
+    #                        stop event on a run that actually ended
+    #                        by exception.
+    finished = Signal(bool, float, bool)
 
     def __init__(
         self,
@@ -395,6 +446,7 @@ class _WorkflowWorker(QObject):
                 )
 
         all_complete = True
+        ended_by_exception = False
 
         # Keys of activities that have been executed (or skipped due
         # to validation failure) in this run. Passed to the subclass
@@ -523,6 +575,7 @@ class _WorkflowWorker(QObject):
                     )
                     executed_keys.add(key)
                     all_complete = False
+                    ended_by_exception = True
                     break
 
                 activity_duration = time.monotonic() - t0_activity
@@ -562,7 +615,7 @@ class _WorkflowWorker(QObject):
         # hooks. Computed *after* the finally so the after_run hook is
         # included in what the user sees as workflow duration.
         total_duration = time.monotonic() - t0_total
-        self.finished.emit(all_complete, total_duration)
+        self.finished.emit(all_complete, total_duration, ended_by_exception)
 
 
 class _FetchHelper(QObject):
@@ -738,6 +791,42 @@ class WorkflowRunner(QObject):
         self._thread: Optional[QThread] = None
         self._worker: Optional[_WorkflowWorker] = None
         self._stop_event: Optional[threading.Event] = None
+
+        # Escalation of the Stop button: set when the user presses
+        # Stop while a stop is already requested (or presses Stop
+        # after the activity loop has ended and only the after_run
+        # cleanup is still running). Subclass after_run hooks poll it
+        # (via their own latched predicate — see
+        # CPWorkflow._after_run) to abandon a slow best-effort
+        # restore. Recreated per run alongside _stop_event.
+        self._abandon_event: Optional[threading.Event] = None
+
+        # --- Post-run reporting state written by after_run hooks ------
+        #
+        # Written on the WORKER thread by the subclass's _after_run
+        # hook; read on the GUI thread by _on_finished. The write
+        # happens-before the worker's queued `finished` emit (which is
+        # what triggers _on_finished), so the read is ordered — same
+        # pattern as CPWorkflow._after_run's existing attribute
+        # cleanup.
+        #
+        # _after_run_warning: short user-facing warning folded into
+        # the final status-bar text ("" = none). Needed because
+        # _on_finished composes the final bar text after _after_run
+        # has returned — a plain on_status() emit from the hook would
+        # be clobbered by "Workflow complete...".
+        self._after_run_warning: str = ""
+        # _after_run_record: optional synthetic session-log record
+        # emitted through activityRecorded in _on_finished, while the
+        # session is still open (workflowFinished — which closes it —
+        # is emitted after). Keys: activity_id, result, duration_s,
+        # last_status, params.
+        self._after_run_record: Optional[Dict[str, Any]] = None
+        # Last exception-path activity status, stashed by
+        # _on_activity_finished. Lets _on_finished re-emit the failure
+        # text on the exception path even when after_run breadcrumbs
+        # ("Restoring PFIB...") have overwritten the status bar since.
+        self._last_exception_status: str = ""
 
         # GUI-thread bridge for the worker's fetch loop. Long-lived
         # — one helper per runner, reused across runs. See
@@ -1174,9 +1263,10 @@ class WorkflowRunner(QObject):
             self.statusUpdated.emit("Cannot start: setup failed")
             return
 
-        # Fresh stop event for this run. Workers do not share state
-        # across runs.
+        # Fresh stop and abandon events for this run. Workers do not
+        # share state across runs.
         self._stop_event = threading.Event()
+        self._abandon_event = threading.Event()
 
         # Reset per-run timing and status state. We reset *at start*
         # rather than *at end* so the invariant is "contents reflect
@@ -1187,6 +1277,9 @@ class WorkflowRunner(QObject):
         self._durations_by_key = {}
         self._total_duration_s = 0.0
         self._status_messages_by_key = {}
+        self._after_run_warning = ""
+        self._after_run_record = None
+        self._last_exception_status = ""
 
         thread = QThread()
         worker = _WorkflowWorker(
@@ -1236,11 +1329,31 @@ class WorkflowRunner(QObject):
         currently-running uninterruptible operation takes (e.g. a sputter
         coat duration that has already started, a home stage call in
         progress).
+
+        Pressing Stop again while a stop is already requested
+        ESCALATES: it sets the abandon event, which after_run cleanup
+        hooks (the PFIB conditions restore) poll to skip their
+        remaining best-effort work. The escalation also covers the
+        completed/exception exit paths, where the stop event is set
+        for the first time while only the restore is still running —
+        the subclass's latched abandon predicate treats that
+        first-press as abandon (see CPWorkflow._after_run). An
+        AutoScript call already in flight can't be interrupted either
+        way; abandon takes effect when it returns.
         """
         if not self._is_running or self._stop_event is None:
             return
         if self._stop_event.is_set():
-            return  # Already requested
+            # Second press — escalate to abandoning after_run cleanup.
+            if (self._abandon_event is not None
+                    and not self._abandon_event.is_set()):
+                logger.info(
+                    "%s: stop re-requested; abandoning post-run cleanup",
+                    type(self).__name__,
+                )
+                self.statusUpdated.emit("Abandoning cleanup...")
+                self._abandon_event.set()
+            return
         logger.info("%s: stop requested", type(self).__name__)
         self.statusUpdated.emit("Stop requested...")
         self._stop_event.set()
@@ -1293,7 +1406,26 @@ class WorkflowRunner(QObject):
         if thread is None or not thread.isRunning():
             return True
         thread.quit()
-        return thread.wait(timeout_ms)
+        if thread.wait(timeout_ms):
+            return True
+        # The join budget is spent — the worker is stuck in slow
+        # after_run work (e.g. a settle poll waiting out a species
+        # switch). NOW abandon it and grant one short grace join; the
+        # poll re-checks abandon at ~1 s granularity, so this usually
+        # succeeds. Deliberately not set before the first wait: a
+        # pre-set abandon would forbid a restore that hadn't started
+        # yet, and the normal quick restore (four writes) comfortably
+        # fits the main join budget.
+        if self._abandon_event is None:
+            return False
+        logger.warning(
+            "%s: worker did not exit within %d ms; abandoning "
+            "post-run cleanup and re-joining",
+            type(self).__name__, timeout_ms,
+        )
+        self._abandon_event.set()
+        thread.quit()
+        return thread.wait(_ABANDON_GRACE_JOIN_MS)
 
     # --- QML-callable accessors (Q_INVOKABLE via @Slot result=) -----------
     #
@@ -1436,6 +1568,12 @@ class WorkflowRunner(QObject):
         key = (activity_id, instance_id)
         self._durations_by_key[key] = duration_s
         self._status_messages_by_key[key] = last_status
+        if result_str == ActivityResult.EXCEPTION.value:
+            # Stashed so _on_finished can re-emit the failure text as
+            # the final status-bar message — after_run breadcrumbs
+            # ("Restoring PFIB...") may overwrite the bar between the
+            # activity failing and the workflow finishing.
+            self._last_exception_status = last_status
         self.activityStatusChanged.emit(activity_id, instance_id, result_str)
 
         # Emit the full per-activity record for SessionLog (and any
@@ -1446,21 +1584,21 @@ class WorkflowRunner(QObject):
             duration_s, last_status, params,
         )
 
-    @Slot(bool, float)
+    @Slot(bool, float, bool)
     def _on_finished(
-        self, all_complete: bool, total_duration_s: float,
+        self,
+        all_complete: bool,
+        total_duration_s: float,
+        ended_by_exception: bool,
     ) -> None:
         self._total_duration_s = total_duration_s
 
-        # Capture stop state before _is_running flips. The event
-        # survives until _on_thread_finished nulls it (that runs after
-        # _on_finished via the deleteLater chain), so this read is
-        # safe. We use it below to distinguish "user clicked Stop"
-        # from "activity raised an exception" — the two non-success
-        # paths want different final-status behavior.
-        was_stopped = (
-            self._stop_event is not None and self._stop_event.is_set()
-        )
+        # The worker reports WHY the loop ended (``ended_by_exception``)
+        # rather than us re-deriving it from the stop event here: a
+        # Stop press during the after_run cleanup — the documented
+        # abandon gesture — sets the stop event on a run that actually
+        # ended by exception, and must not reclassify it as a user
+        # stop (which would discard ``_last_exception_status``).
 
         self._is_running = False
         self.isRunningChanged.emit()
@@ -1476,23 +1614,59 @@ class WorkflowRunner(QObject):
         # our ``statusUpdated`` slot is no longer connected. Emitting
         # the final message first ensures it lands while the binding
         # is still pointing at us.
+        # Synthetic session-log record from the after_run hook (e.g. a
+        # failed PFIB restore). Emitted here — on the GUI thread, and
+        # while the session is still open (workflowFinished below is
+        # what closes it) — rather than from the worker, preserving
+        # the worker↔runner signal discipline.
+        rec = self._after_run_record
+        if rec is not None:
+            self.activityRecorded.emit(
+                rec["activity_id"], "", rec["result"],
+                rec["duration_s"], rec["last_status"], rec["params"],
+            )
+
+        # Warning from the after_run hook, folded into the final
+        # status text so it isn't clobbered by the completion message.
+        # The duration is dropped from the warning forms deliberately:
+        # short bar, and the duration is still in the log / session
+        # record.
+        warning = self._after_run_warning
         if all_complete:
-            self.statusUpdated.emit(
-                f"Workflow complete. Total duration: "
-                f"{_format_duration(total_duration_s)}"
-            )
-        elif was_stopped:
-            # User-requested stop. Replace the transient
-            # "Stop requested..." that ``stop()`` emitted with a
-            # final state message — otherwise the StatusBar is stuck
-            # showing the in-flight request indefinitely.
-            self.statusUpdated.emit(
-                f"Workflow stopped. Total duration: "
-                f"{_format_duration(total_duration_s)}"
-            )
-        # else: exception path. Leave the activity's last user-facing
-        # status text in place — "Sputter coat: failed to set ion
-        # species" is more informative than a generic failure line.
+            if warning:
+                self.statusUpdated.emit(f"Workflow complete — {warning}")
+            else:
+                self.statusUpdated.emit(
+                    f"Workflow complete. Total duration: "
+                    f"{_format_duration(total_duration_s)}"
+                )
+        elif not ended_by_exception:
+            # User-requested stop (or a stop-result activity). Replace
+            # the transient "Stop requested..." that ``stop()`` emitted
+            # with a final state message — otherwise the StatusBar is
+            # stuck showing the in-flight request indefinitely.
+            if warning:
+                self.statusUpdated.emit(f"Workflow stopped — {warning}")
+            else:
+                self.statusUpdated.emit(
+                    f"Workflow stopped. Total duration: "
+                    f"{_format_duration(total_duration_s)}"
+                )
+        else:
+            # Exception path. Re-emit the failed activity's message —
+            # "Sputter coat: failed to set ion species" is more
+            # informative than a generic failure line, and after_run
+            # breadcrumbs ("Restoring PFIB...") may have overwritten
+            # it in the bar since — appending the post-run warning if
+            # there is one.
+            final = self._last_exception_status
+            if final and warning:
+                final = f"{final} — {warning}"
+            elif warning:
+                final = warning
+            if final:
+                self.statusUpdated.emit(final)
+            # else: nothing to say beyond what's already in the bar.
 
         self.workflowFinished.emit(all_complete)
 
@@ -1505,3 +1679,4 @@ class WorkflowRunner(QObject):
         self._thread = None
         self._worker = None
         self._stop_event = None
+        self._abandon_event = None

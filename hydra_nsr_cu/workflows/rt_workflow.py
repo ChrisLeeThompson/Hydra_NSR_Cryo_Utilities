@@ -81,7 +81,11 @@ from ..pre_start_checks import (
     to_dialog_items,
 )
 from ..settings.settings_controller import SettingsController
-from .runner import PreStartValidationResult, WorkflowRunner
+from .runner import (
+    PreStartValidationResult,
+    WorkflowRunner,
+    build_abandon_predicate,
+)
 from .settings_snapshot import WorkflowSettingsSnapshot
 
 logger = logging.getLogger(__name__)
@@ -366,7 +370,23 @@ class RTWorkflow(WorkflowRunner):
         snapshot) are cleared unconditionally so nothing leaks into a
         subsequent run.
         """
-        if completed:
+        # Latched Stop-press abandon semantics — a Stop press while
+        # only this cleanup is running (or a second press on the stop
+        # path) skips the stage move. See build_abandon_predicate.
+        should_abandon = build_abandon_predicate(
+            self._stop_event, self._abandon_event,
+        )
+
+        if completed and should_abandon():
+            logger.warning(
+                "RTWorkflow: cleanup abandoned; skipping stage-position "
+                "restore"
+            )
+            if not self._after_run_warning:
+                self._after_run_warning = (
+                    "Cleanup abandoned — stage position not restored"
+                )
+        elif completed:
             if (self._stage_recorder is not None
                     and self._stage_snapshot is not None):
                 on_status("Returning stage to original position...")

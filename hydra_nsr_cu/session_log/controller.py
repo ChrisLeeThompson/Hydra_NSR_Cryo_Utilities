@@ -351,6 +351,10 @@ class SessionLog(QObject):
             "gis_deposition": "GIS Deposition",
             "gis_purge": "GIS Purge",
             "home_stage": "Home Stage",
+            # Synthetic record emitted when the end-of-run PFIB
+            # conditions restore fails or is abandoned (not a real
+            # activity — see CPWorkflow._after_run).
+            "pfib_restore": "PFIB Restore",
         }
         if activity_id in known:
             return known[activity_id]
