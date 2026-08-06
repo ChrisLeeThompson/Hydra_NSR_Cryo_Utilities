@@ -275,8 +275,10 @@ class SettingsController(QObject):
     #
     # Governs the beam's electrical state on restore: high voltage,
     # beam current, and on/off. On/off is folded into this group by
-    # PFIBConditionsRecorder — see its docstring. Independent of the
-    # ion-species toggle below.
+    # PFIBConditionsRecorder — see its docstring. Applied only after
+    # a fully successful Cryo Prep run — a stopped, failed, or
+    # aborted run leaves the beam as-is (see CPWorkflow._after_run).
+    # Independent of the ion-species toggle below.
 
     @Property(bool, notify=restoreOriginalPFIBVoltageAndCurrentChanged)
     def restoreOriginalPFIBVoltageAndCurrent(self) -> bool:
@@ -293,8 +295,12 @@ class SettingsController(QObject):
 
     # --- Restore original PFIB ion species ---------------------------------
     #
-    # Governs the plasma gas (ion species) on restore. Independent of
-    # the voltage/current toggle above.
+    # Governs the plasma gas (ion species) on restore. Applied only
+    # after a fully successful Cryo Prep run — a stopped, failed, or
+    # aborted run leaves the species as-is, since a switch-back
+    # re-strikes the plasma source and can take minutes (see
+    # CPWorkflow._after_run). Independent of the voltage/current
+    # toggle above.
 
     @Property(bool, notify=restoreOriginalPFIBIonSpeciesChanged)
     def restoreOriginalPFIBIonSpecies(self) -> bool:

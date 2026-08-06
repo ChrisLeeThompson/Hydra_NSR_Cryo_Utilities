@@ -50,8 +50,10 @@ The "key" used to identify an executed activity is
 
 If an activity fails validation when it's about to be fetched (e.g.
 a GIS Deposition added mid-run that references a deleted position),
-the subclass emits its own validation signal and returns ``None``
-to end the workflow. The reasoning is workflow-specific: see
+the subclass emits its own validation signal and returns
+:meth:`WorkflowRunner._abort_fetch` to end the workflow as
+not-complete (returning ``None`` would end it as *complete*, firing
+the success-only restores). The reasoning is workflow-specific: see
 :class:`CPWorkflow`'s discussion of layered deposition. Subclasses
 that don't have such a constraint can choose to skip-and-continue
 instead.
@@ -246,6 +248,27 @@ def _safe_parameter_summary(activity: ActivityService) -> Dict[str, Any]:
         return {}
 
 
+class _FetchAborted:
+    """Sentinel type for a fetch-hook abort — see :data:`_FETCH_ABORTED`."""
+
+    __slots__ = ()
+
+
+# Returned through the fetch bridge when the subclass hook ABORTS the
+# run — mid-run validation failure, pre-start-check refusal, or an
+# unexpected exception inside the hook — as opposed to ``None``, which
+# means "nothing left to run". The worker maps it to
+# ``all_complete = False`` so the success-only cleanup (PFIB / stage
+# restores) and the "Workflow complete" final status don't fire on an
+# aborted run. Subclasses don't touch the sentinel directly — they
+# return :meth:`WorkflowRunner._abort_fetch` from their fetch hook.
+_FETCH_ABORTED = _FetchAborted()
+
+# What a fetch can produce: the next activity to run, the abort
+# sentinel, or None when no activities remain.
+FetchOutcome = Union[ActivityService, _FetchAborted, None]
+
+
 # --- Pre-start validation result types --------------------------------------
 
 
@@ -356,8 +379,12 @@ class _WorkflowWorker(QObject):
 
     # Emitted once the entire workflow is done. Three args:
     #   all_complete       — True if every activity completed normally;
-    #                        False if any was stopped or raised, or if
-    #                        the loop exited early via a None fetch.
+    #                        False if any was stopped, raised, returned
+    #                        an exception result, or the run was
+    #                        aborted by the fetch hook. (A None fetch
+    #                        means "nothing left to run" and leaves the
+    #                        run complete — aborts travel exclusively
+    #                        via the _FETCH_ABORTED sentinel.)
     #   total_duration_s   — wall-clock seconds for the entire
     #                        ``run()`` call, including the optional
     #                        ``before_run`` / ``after_run`` hooks and
@@ -370,8 +397,9 @@ class _WorkflowWorker(QObject):
     #                        for log forensics; the runner only
     #                        surfaces it in the status bar on the
     #                        success path.
-    #   ended_by_exception — True iff the loop broke because an
-    #                        activity RAISED uncaught. The runner needs
+    #   ended_by_exception — True iff the loop ended because an
+    #                        activity failed (caught EXCEPTION result
+    #                        or uncaught raise). The runner needs
     #                        this to pick the final status-bar branch;
     #                        it cannot be derived from the stop event,
     #                        because a Stop press during the after_run
@@ -382,16 +410,18 @@ class _WorkflowWorker(QObject):
 
     def __init__(
         self,
-        fetch_next: Callable[[Set[str]], Optional[ActivityService]],
+        fetch_next: Callable[[Set[str]], FetchOutcome],
         stop_event: threading.Event,
         before_run: Optional[Callable[[StatusCallback], None]] = None,
         after_run: Optional[Callable[[StatusCallback, bool], None]] = None,
     ) -> None:
         super().__init__()
         # Fetch callback: given the set of executed activity keys,
-        # returns the next pending activity or None when the loop
-        # should end. The callable handles the GUI-thread dispatch
-        # itself (see WorkflowRunner.start for how it's set up).
+        # returns the next pending activity, None when the loop
+        # should end normally, or the abort sentinel when the run
+        # must end as not-complete. The callable handles the
+        # GUI-thread dispatch itself (see WorkflowRunner.start for
+        # how it's set up).
         self._fetch_next = fetch_next
         self._stop_event = stop_event
         # Optional pre/post hooks that run on the worker thread, before
@@ -465,10 +495,20 @@ class _WorkflowWorker(QObject):
 
                 # Fetch the next pending activity from the GUI thread.
                 # Returns None when there's nothing left to run, or
-                # when a subclass aborts (e.g. mid-run validation
-                # failure on a layered-deposition workflow).
+                # the abort sentinel when a subclass aborts (e.g.
+                # mid-run validation failure on a layered-deposition
+                # workflow, or a pre-start-check refusal).
                 activity = self._fetch_next(executed_keys)
                 if activity is None:
+                    break
+                if isinstance(activity, _FetchAborted):
+                    # Aborted runs are not complete: the success-only
+                    # cleanup (PFIB / stage restores) must not fire,
+                    # and the final status must not read "Workflow
+                    # complete". The abort site already emitted its
+                    # own reason and recorded it for _on_finished.
+                    logger.info("Workflow: run aborted by fetch hook")
+                    all_complete = False
                     break
 
                 activity_id = activity.activity_id
@@ -593,7 +633,18 @@ class _WorkflowWorker(QObject):
                 )
                 executed_keys.add(key)
 
-                # A stop result from one activity propagates to the workflow.
+                # A stop or exception result from one activity ends the
+                # workflow. Activities catch their own hardware errors
+                # and *return* EXCEPTION (see ActivityResult), so this
+                # branch mirrors the uncaught-raise handler above —
+                # without it a failed activity would let the remaining
+                # activities run and the run would report itself
+                # complete (and the success-only restores would fire
+                # after a failure).
+                if result == ActivityResult.EXCEPTION:
+                    all_complete = False
+                    ended_by_exception = True
+                    break
                 if result == ActivityResult.STOP:
                     all_complete = False
                     break
@@ -660,14 +711,14 @@ class _FetchHelper(QObject):
         # returns before another can begin (guaranteed by
         # BlockingQueuedConnection's synchronous semantics).
         self._executed_keys: Set[str] = set()
-        self._result: Optional[ActivityService] = None
+        self._result: FetchOutcome = None
         self.fetchRequested.connect(
             self._on_fetch, Qt.ConnectionType.BlockingQueuedConnection,
         )
 
     def fetch(
         self, executed_keys: Set[str],
-    ) -> Optional[ActivityService]:
+    ) -> FetchOutcome:
         """Worker-thread entry point. Returns when the GUI thread answers."""
         self._executed_keys = executed_keys
         self._result = None
@@ -683,16 +734,23 @@ class _FetchHelper(QObject):
                 self._executed_keys
             )
         except Exception:
-            # If the subclass raises, we surface None to the worker
-            # (which will end the loop with all_complete=False) and
-            # log here. Subclass exceptions inside _next_pending_activity
-            # are unexpected — they suggest a programming error rather
-            # than user data invalidity (which should return None
-            # cleanly with a validationFailed signal).
+            # If the subclass raises, we surface the abort sentinel to
+            # the worker (which ends the loop with all_complete=False)
+            # and log here. Subclass exceptions inside
+            # _next_pending_activity are unexpected — they suggest a
+            # programming error rather than user data invalidity
+            # (which aborts cleanly via _abort_fetch after emitting a
+            # validationFailed signal). Route through _abort_fetch
+            # like every other abort site so the run's final status
+            # names the abort instead of falling through to the
+            # misleading "Workflow stopped." (we run on the GUI
+            # thread, so recording the reason is safe here too).
             logger.exception(
                 "Workflow: _next_pending_activity raised; ending workflow"
             )
-            self._result = None
+            self._result = self._runner._abort_fetch(
+                "Workflow aborted: internal error"
+            )
 
 
 class WorkflowRunner(QObject):
@@ -827,6 +885,13 @@ class WorkflowRunner(QObject):
         # text on the exception path even when after_run breadcrumbs
         # ("Restoring PFIB...") have overwritten the status bar since.
         self._last_exception_status: str = ""
+        # Mid-run abort reason, recorded by _abort_fetch (or
+        # _mid_run_pre_start_check_passes) on the GUI thread during a
+        # fetch round-trip. Read by _on_finished — also on the GUI
+        # thread, strictly after the abort — so the final status bar
+        # text preserves WHY the run ended instead of the misleading
+        # "Workflow stopped." Empty when the run wasn't aborted.
+        self._abort_status: str = ""
 
         # GUI-thread bridge for the worker's fetch loop. Long-lived
         # — one helper per runner, reused across runs. See
@@ -988,7 +1053,7 @@ class WorkflowRunner(QObject):
     @abstractmethod
     def _next_pending_activity(
         self, executed_keys: Set[str],
-    ) -> Optional[ActivityService]:
+    ) -> FetchOutcome:
         """Return the next activity to run, or ``None`` if no more are pending.
 
         Called on the GUI thread (via ``Qt.BlockingQueuedConnection``
@@ -1006,9 +1071,9 @@ class WorkflowRunner(QObject):
         activities returned here. If an activity is enabled but
         invalid (e.g. a GIS Deposition with a stale position
         reference added mid-run), the subclass should emit its own
-        validation signal and return ``None`` to abort the workflow.
-        See :class:`CPWorkflow` for the rationale specific to
-        layered deposition.
+        validation signal and return :meth:`_abort_fetch` to abort
+        the workflow. See :class:`CPWorkflow` for the rationale
+        specific to layered deposition.
 
         Skipping an enabled activity
         ----------------------------
@@ -1021,14 +1086,40 @@ class WorkflowRunner(QObject):
         check the next candidate activity within the same call,
         rather than returning ``None`` (which would end the loop).
 
-        Returning ``None`` ends the workflow loop with
-        ``all_complete=True`` only if no activities have been
-        skipped or aborted; the worker tracks completion based on
-        each activity's ``ActivityResult``, not on the absence of
-        further pending work.
+        Ending the loop
+        ---------------
+        Returning ``None`` means "nothing left to run" and, when
+        every executed activity completed, ends the run as
+        ``all_complete=True`` (restores fire, "Workflow complete").
+        Returning :meth:`_abort_fetch`'s sentinel ends the run as
+        NOT complete: the success-only cleanup is skipped and the
+        recorded abort reason becomes the final status text.
         """
         raise NotImplementedError
-    
+
+    def _abort_fetch(self, status: str = "") -> _FetchAborted:
+        """Abort the run from inside :meth:`_next_pending_activity`.
+
+        Records ``status`` as the run's abort reason and emits it on
+        the status bar immediately; :meth:`_on_finished` re-emits it
+        as the final text (in place of "Workflow stopped.") so it
+        survives any later breadcrumbs. Pass an empty ``status`` to
+        keep a reason recorded earlier in the same fetch call (e.g.
+        by :meth:`_mid_run_pre_start_check_passes`).
+
+        GUI-thread only — call it exclusively from the fetch hook,
+        which runs there; ``_abort_status`` is then read by
+        ``_on_finished`` on the same thread, after the worker's
+        queued ``finished`` emit.
+
+        Returns:
+            The sentinel the fetch hook must return to the worker.
+        """
+        if status:
+            self._abort_status = status
+            self.statusUpdated.emit(status)
+        return _FETCH_ABORTED
+
     def _mid_run_pre_start_check_passes(
         self,
         activity_class: Type[ActivityService],
@@ -1039,9 +1130,9 @@ class WorkflowRunner(QObject):
         Called by subclasses from :meth:`_next_pending_activity`
         just before returning a candidate activity. Returns ``True``
         if the activity can proceed; ``False`` if the workflow must
-        abort (caller returns ``None`` from
-        ``_next_pending_activity``, which ends the worker loop with
-        ``all_complete=False``).
+        abort (caller returns ``self._abort_fetch()`` — no message
+        argument, the reason recorded here stands — which ends the
+        worker loop with ``all_complete=False``).
 
         Mid-run cannot pause for a confirmation dialog. The worker
         thread is blocked on the fetch via
@@ -1055,10 +1146,11 @@ class WorkflowRunner(QObject):
 
         On abort, emits :attr:`preStartCheckRefused` with the
         check-result items and a ``"Pre-start check failed"``
-        status breadcrumb. The user sees the REFUSE dialog
-        mid-workflow; the worker's ``finished`` slot leaves the
-        breadcrumb text in place (exception-path semantics —
-        neither ``all_complete`` nor ``was_stopped``).
+        status breadcrumb, and records the same text as the run's
+        abort reason (``_abort_status``) so :meth:`_on_finished`
+        re-emits it as the final status. The user sees the REFUSE
+        dialog mid-workflow; the run ends as not-complete, so the
+        success-only restores don't fire.
 
         Args:
             activity_class: The class whose
@@ -1078,8 +1170,23 @@ class WorkflowRunner(QObject):
         if not checks:
             return True
 
-        snapshot = gather_snapshot(microscope)
-        summary = run_pre_start_checks(checks, snapshot)
+        try:
+            snapshot = gather_snapshot(microscope)
+            summary = run_pre_start_checks(checks, snapshot)
+        except Exception:
+            # gather_snapshot reads live hardware; a transient glitch
+            # mid-run must not escape the fetch hook as an anonymous
+            # crash (the _FetchHelper backstop would label it an
+            # internal error). Abort with the actual reason instead —
+            # mirrors the guard on the start-time pass in the
+            # subclasses' _validate_pre_start.
+            logger.exception(
+                "%s: mid-run pre-start hardware read failed; "
+                "aborting workflow", type(self).__name__,
+            )
+            self._abort_status = "Workflow aborted: hardware read failed"
+            self.statusUpdated.emit(self._abort_status)
+            return False
 
         # Build the abort list: all REFUSE results, plus
         # ASK_CONFIRM results whose check type is not in the
@@ -1094,6 +1201,10 @@ class WorkflowRunner(QObject):
         if refusals:
             items = to_dialog_items(refusals)
             self.preStartCheckRefused.emit(items)
+            # Recorded (not just emitted) so the reason survives as
+            # the final status text; the caller's _abort_fetch() is
+            # called with no message so this one stands.
+            self._abort_status = "Pre-start check failed"
             self.statusUpdated.emit("Pre-start check failed")
             logger.info(
                 "%s: mid-run pre-start check failed for %s "
@@ -1280,6 +1391,7 @@ class WorkflowRunner(QObject):
         self._after_run_warning = ""
         self._after_run_record = None
         self._last_exception_status = ""
+        self._abort_status = ""
 
         thread = QThread()
         worker = _WorkflowWorker(
@@ -1641,11 +1753,21 @@ class WorkflowRunner(QObject):
                     f"{_format_duration(total_duration_s)}"
                 )
         elif not ended_by_exception:
+            if self._abort_status:
+                # Mid-run abort (validation failure / pre-start-check
+                # refusal). Preserve the abort reason as the final
+                # text — "Workflow stopped." would mislabel it as a
+                # user action, and the transient reason emitted at
+                # abort time may have been overwritten since.
+                final = self._abort_status
+                if warning:
+                    final = f"{final} — {warning}"
+                self.statusUpdated.emit(final)
             # User-requested stop (or a stop-result activity). Replace
             # the transient "Stop requested..." that ``stop()`` emitted
             # with a final state message — otherwise the StatusBar is
             # stuck showing the in-flight request indefinitely.
-            if warning:
+            elif warning:
                 self.statusUpdated.emit(f"Workflow stopped — {warning}")
             else:
                 self.statusUpdated.emit(
@@ -1654,7 +1776,7 @@ class WorkflowRunner(QObject):
                 )
         else:
             # Exception path. Re-emit the failed activity's message —
-            # "Sputter coat: failed to set ion species" is more
+            # "Sputter coat: setting ion species failed — ..." is more
             # informative than a generic failure line, and after_run
             # breadcrumbs ("Restoring PFIB...") may have overwritten
             # it in the bar since — appending the post-run warning if

@@ -82,6 +82,7 @@ from ..pre_start_checks import (
 )
 from ..settings.settings_controller import SettingsController
 from .runner import (
+    FetchOutcome,
     PreStartValidationResult,
     WorkflowRunner,
     build_abandon_predicate,
@@ -411,7 +412,7 @@ class RTWorkflow(WorkflowRunner):
 
     def _next_pending_activity(
         self, executed_keys,
-    ) -> Optional[ActivityService]:
+    ) -> FetchOutcome:
         """Return the next enabled activity not yet executed in this run.
 
         RT exposes two single-instance activities — GIS Purge first,
@@ -451,11 +452,12 @@ class RTWorkflow(WorkflowRunner):
         if (self._gis_purge_enabled
                 and gis_purge_key not in executed_keys):
             # Mid-run pre-start check. GIS Purge has no checks today
-            # but the call is included for consistency.
+            # but the call is included for consistency. The helper
+            # records the abort reason — no message here.
             if not self._mid_run_pre_start_check_passes(
                 GISPurgeService, self._microscope,
             ):
-                return None
+                return self._abort_fetch()
             activity = self._build_gis_purge()
             if activity is not None:
                 return activity
@@ -468,7 +470,7 @@ class RTWorkflow(WorkflowRunner):
             if not self._mid_run_pre_start_check_passes(
                 HomeStageService, self._microscope,
             ):
-                return None
+                return self._abort_fetch()
             return self._build_home_stage()
 
         return None
@@ -478,9 +480,10 @@ class RTWorkflow(WorkflowRunner):
 
         Returns ``None`` if the configured GIS port name is empty
         (a settings-level misconfiguration), with a logged warning.
-        The runner treats a ``None`` result like "no more pending"
-        and ends the loop — equivalent to the old behavior of
-        silently dropping the activity from the snapshotted list.
+        The caller (:meth:`_next_pending_activity`) treats a ``None``
+        result as "handled but skipped" — it marks the key as
+        executed and falls through to the next activity, so the rest
+        of the workflow still runs.
         """
         port_name = self._settings_snapshot.gis_gas_port_name.strip()
         if not port_name:

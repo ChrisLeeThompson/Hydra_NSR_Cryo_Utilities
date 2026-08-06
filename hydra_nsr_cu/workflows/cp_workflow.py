@@ -65,13 +65,15 @@ Three passes:
   each activity it's about to return. On a mid-run validation
   failure (e.g. a GIS Deposition added mid-run with no position
   selected), the workflow aborts: emit :attr:`validationFailed` for
-  that activity, return ``None`` so the runner ends the loop.
+  that activity, return :meth:`WorkflowRunner._abort_fetch` so the
+  runner ends the loop as not-complete (the success-only restores
+  don't fire and the abort reason becomes the final status).
   Aborting rather than skipping reflects the layered-deposition
   physics — successive Sputter Coat / GIS Deposition activities lay
   down dependent material layers, so a missing intermediate layer
   would produce an incomplete sample worse than running fewer
-  activities. (A mid-run pre-start check pass is planned alongside
-  this — see :attr:`WorkflowRunner._confirmed_check_types` for the
+  activities. (A mid-run pre-start check pass runs alongside this —
+  see :attr:`WorkflowRunner._confirmed_check_types` for the
   carry-forward of types the user already confirmed at Start.)
 
 PFIB conditions
@@ -79,7 +81,11 @@ PFIB conditions
 If either :attr:`SettingsController.restoreOriginalPFIBVoltageAndCurrent`
 or :attr:`SettingsController.restoreOriginalPFIBIonSpecies` is true,
 the runner captures PFIB state once at the start of the workflow and
-restores the enabled group(s) once at the end. The two settings map
+restores the enabled group(s) once at the end — only when every
+activity completed successfully. A stopped, failed, or aborted run
+leaves the ion beam exactly as it is (see :meth:`_after_run` for the
+rationale; the species switch-back in particular re-strikes the
+plasma source and can take minutes). The two settings map
 to the recorder's two restore groups — beam-electrical (high voltage,
 beam current, on/off) and ion species (plasma gas) respectively — so
 the user can revert one without the other (e.g. restore voltage and
@@ -146,6 +152,7 @@ from ..pre_start_checks import (
 from ..settings.settings_controller import SettingsController
 from ..stage_positions.controller import StagePositionsController
 from .runner import (
+    FetchOutcome,
     PreStartValidationResult,
     WorkflowRunner,
     build_abandon_predicate,
@@ -696,7 +703,7 @@ class CPWorkflow(WorkflowRunner):
 
     def _next_pending_activity(
         self, executed_keys: Set[str],
-    ) -> Optional[ActivityService]:
+    ) -> FetchOutcome:
         """Return the next enabled activity not yet executed in this run.
 
         Walks the cryo activity model in current order, skipping
@@ -714,10 +721,12 @@ class CPWorkflow(WorkflowRunner):
         Two-stage failure on each candidate:
 
         * **Parameter validation** — :meth:`_validate_record`. On
-          failure, emits :attr:`validationFailed` and aborts.
+          failure, emits :attr:`validationFailed` and aborts via
+          :meth:`_abort_fetch`.
         * **Pre-start check** — :meth:`_mid_run_pre_start_check_passes`.
-          On failure, the helper emits its own diagnostics; we just
-          return ``None`` to abort.
+          On failure, the helper emits its own diagnostics and
+          records the abort reason; we return ``self._abort_fetch()``
+          to abort.
 
         Both abort the workflow per the layered-deposition contract:
         dependent layers (Sputter Coat, GIS Deposition) build on
@@ -767,24 +776,24 @@ class CPWorkflow(WorkflowRunner):
             error = self._validate_record(record)
             if error is not None:
                 self.validationFailed.emit(record.instance_id, error)
-                self.statusUpdated.emit(
-                    "Workflow aborted: an activity failed validation"
-                )
                 logger.warning(
                     "CPWorkflow: aborting workflow — activity %r "
                     "(instance=%r) failed mid-run validation: %s",
                     activity_id, record.instance_id, error,
                 )
-                return None
+                return self._abort_fetch(
+                    "Workflow aborted: an activity failed validation"
+                )
 
             # Stage 2: mid-run pre-start check. ASK_CONFIRM outcomes
             # whose type was pre-confirmed at workflow Start proceed
             # silently; everything else aborts. Helper emits its own
-            # diagnostics (preStartCheckRefused + status breadcrumb).
+            # diagnostics (preStartCheckRefused + status breadcrumb)
+            # and records the abort reason — no message here.
             if not self._mid_run_pre_start_check_passes(
                 activity_class, self._microscope,
             ):
-                return None
+                return self._abort_fetch()
 
             # Build the service. Construction reads the record's
             # current parameter values; edits made between Start and
@@ -807,7 +816,7 @@ class CPWorkflow(WorkflowRunner):
             if not self._mid_run_pre_start_check_passes(
                 HomeStageService, self._microscope,
             ):
-                return None
+                return self._abort_fetch()
             return self._build_home_stage()
 
         return None
@@ -855,15 +864,17 @@ class CPWorkflow(WorkflowRunner):
     def _after_run(self, on_status: StatusCallback, completed: bool) -> None:
         """Restore captured state after the activity loop exits.
 
-        Two independent restores with different exit-path policies:
+        Every restore is gated on a fully successful run
+        (``completed`` is True). After a stop, exception, or mid-run
+        abort the microscope is left exactly as it is:
 
-        * **PFIB conditions** — restored on every exit path (success,
-          stop, exception), matching its long-standing behavior. The
-          ion-beam parameters are safe to revert regardless of how the
-          run ended.
-        * **Stage position** — restored only on a fully successful run
-          (``completed`` is True). After a stop or exception we leave
-          the stage where it is: commanding further motion after an
+        * **PFIB conditions** (voltage/current and ion species) — an
+          abnormal exit is not the moment to command more hardware
+          changes, and the species revert in particular is expensive:
+          a plasma-gas switch re-strikes the source and can take
+          minutes to settle. The skip is logged so the exit isn't
+          silent.
+        * **Stage position** — commanding further motion after an
           abnormal exit is unsafe (a stop may be a reaction to a
           collision risk; an exception may mean the stage isn't where
           we think it is).
@@ -876,13 +887,19 @@ class CPWorkflow(WorkflowRunner):
         run, regardless of which restores fired.
         """
         # Latched Stop-press abandon semantics for ALL cleanup in this
-        # hook (PFIB restore and stage restore) — see the helper.
+        # hook (PFIB restore and stage restore) — see the helper. With
+        # every restore success-gated, this only bites when a first
+        # Stop press lands during cleanup after a successful run (or a
+        # second press escalates during that cleanup).
         should_abandon = build_abandon_predicate(
             self._stop_event, self._abandon_event,
         )
 
-        # PFIB conditions — unconditional (every exit path).
-        if self._pfib_recorder is not None and self._pfib_snapshot is not None:
+        # PFIB conditions — success only, same policy as the stage
+        # below.
+        if (completed
+                and self._pfib_recorder is not None
+                and self._pfib_snapshot is not None):
             restore_vc = self._settings_snapshot.restore_pfib_voltage_current
             restore_sp = self._settings_snapshot.restore_pfib_ion_species
             # Tailor the status message to the enabled group(s) so the
@@ -936,6 +953,19 @@ class CPWorkflow(WorkflowRunner):
                     restore_beam_electrical=restore_vc,
                     duration_s=restore_duration_s,
                 )
+        elif not completed and self._pfib_recorder is not None:
+            # The user asked for a restore, but the run ended by
+            # stop / exception / abort — leave the ion beam exactly
+            # as it is. Reverting now would command more hardware
+            # churn at the worst moment, and a species switch-back
+            # in particular re-strikes the plasma source and can
+            # take minutes. Log-only: the status bar stays on the
+            # stop/error/abort message.
+            logger.info(
+                "CPWorkflow: skipping PFIB conditions restore (run did "
+                "not complete successfully); ion beam left at current "
+                "settings"
+            )
 
         # Stage position — success only, and never after an abandon:
         # commanding stage motion right after the user asked to

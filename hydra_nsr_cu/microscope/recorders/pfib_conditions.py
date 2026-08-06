@@ -328,8 +328,10 @@ class PFIBConditionsRecorder:
         readback verification for the species switch and beam-on, one
         gated ``turn_on`` retry — per the module-docstring policy.
 
-        Called from the workflow runner's ``_after_run`` on a committed
-        run, with the flags mapped from the run's settings snapshot.
+        Called from the workflow runner's ``_after_run`` after a fully
+        successful run — a stopped, failed, or aborted run skips the
+        restore entirely (see :meth:`CPWorkflow._after_run`) — with
+        the flags mapped from the run's settings snapshot.
         """
         logger.info(
             "PFIB conditions restoring "

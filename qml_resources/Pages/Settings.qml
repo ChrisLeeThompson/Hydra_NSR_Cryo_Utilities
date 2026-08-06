@@ -318,11 +318,14 @@ Item {
 
                 // ---- Row 8: Restore PFIB Voltage and Current ----
                 //
-                // Restores the ion beam's electrical state on a committed
-                // run: high voltage, beam current, and beam on/off. Beam
-                // on/off rides with this toggle (see PFIBConditionsRecorder),
-                // so word the label/tooltip to mention the on/off restore.
-                // Independent of the ion-species toggle below.
+                // Restores the ion beam's electrical state — high voltage,
+                // beam current, and beam on/off — after all Cryo Prep
+                // activities complete successfully. A stopped or failed
+                // run leaves the beam as-is (see CPWorkflow._after_run).
+                // Beam on/off rides with this toggle (see
+                // PFIBConditionsRecorder), so word the label/tooltip to
+                // mention the on/off restore. Independent of the
+                // ion-species toggle below.
 
                 ToolTippedLabel {
 
@@ -347,10 +350,14 @@ Item {
 
                 // ---- Row 9: Restore PFIB Ion Species ----
                 //
-                // Restores the plasma gas (ion species) on a committed run.
-                // Independent of the voltage/current toggle above — leave
-                // this off to keep the species switched in for sputter
-                // coating while still reverting voltage/current.
+                // Restores the plasma gas (ion species) after all Cryo
+                // Prep activities complete successfully. A stopped or
+                // failed run leaves the species as-is — a switch-back
+                // re-strikes the plasma source and can take minutes
+                // (see CPWorkflow._after_run). Independent of the
+                // voltage/current toggle above — leave this off to keep
+                // the species switched in for sputter coating while
+                // still reverting voltage/current.
 
                 ToolTippedLabel {
 

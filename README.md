@@ -1,4 +1,4 @@
-Hydra NSR Cryo Utilities 3.0
+Hydra NSR Cryo Utilities 3
 
 Run in simulation mode:
 1. Edit the defaults.py file located in Hydra_NSR_Cryo_Utilities_3.0/hydra_nsr_cu/defaults.py

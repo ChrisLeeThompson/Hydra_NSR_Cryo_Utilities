@@ -81,7 +81,8 @@ SPUTTER_DURATION_MAX_S: int = 999
 # (high voltage, beam current, and on/off), the other restores the
 # ion species (plasma gas). Splitting lets the user, e.g., revert
 # voltage/current for imaging while keeping the species that was
-# switched in for sputter coating.
+# switched in for sputter coating. Like the stage restore, both
+# apply only after a fully successful run (see CPWorkflow._after_run).
 MOVE_STAGE_TO_ORIGINAL_POSITION: bool = True
 RESTORE_ORIGINAL_PFIB_VOLTAGE_CURRENT: bool = False
 RESTORE_ORIGINAL_PFIB_ION_SPECIES: bool = False
