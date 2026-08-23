@@ -19,6 +19,5 @@ This package owns:
 Defaults for activity parameters and the initial activity list live in
 :mod:`hydra_nsr_cu.defaults` alongside other app-wide defaults.
 
-Workflow execution is in :mod:`hydra_nsr_cu.workflows.cp_workflow`,
-arriving in Session 5D.
+Workflow execution is in :mod:`hydra_nsr_cu.workflows.cp_workflow`.
 """

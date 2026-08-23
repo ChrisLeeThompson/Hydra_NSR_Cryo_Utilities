@@ -6,9 +6,9 @@ intention-revealing surface. Two implementations live side by side:
 * :class:`IonBeamOps` — real, backed by ``SdbMicroscopeClient.beams.ion_beam``.
 * :class:`SimulatedIonBeamOps` — in-memory simulation for offline UI development.
 
-The exposed surface covers what Sputter Coat (Session 5B) and the
-Stage / Scan page (Session 6) need: beam on/off, plasma gas
-selection, high voltage, beam current, and scan rotation.
+The exposed surface covers what Sputter Coat and the Stage / Scan
+page need: beam on/off, plasma gas selection, high voltage, beam
+current, and scan rotation.
 
 Plasma-gas opacity
 ------------------
@@ -60,7 +60,8 @@ def resolve_plasma_gas_enum(species_name: str) -> PlasmaGasValue:
     return value via ``==``.
 
     For simulation environments (where importing ``PlasmaGasType`` would
-    fail), we fall back to returning the species name as a string. The
+    fail), the helper falls back to returning the species name as a
+    string. The
     simulated ion beam ops accept strings, so this works transparently.
     The real ion beam ops would reject a string with a clear AutoScript
     error, but that path is never taken with the real client.
@@ -285,8 +286,7 @@ class SimulatedIonBeamOps:
         # on hardware, where a write of exactly 2π raised "specified
         # value is out of range". Enforcing the same domain here makes
         # out-of-range writes fail in simulation instead of passing
-        # silently (which is how the unwrapped +π scan-rotate-after
-        # bug shipped in 3.0.1).
+        # silently.
         if not 0.0 <= value < math.tau:
             raise ValueError(
                 f"Specified value is out of range: {value!r} rad "

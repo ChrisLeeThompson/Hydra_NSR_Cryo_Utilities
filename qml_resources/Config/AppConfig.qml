@@ -40,6 +40,8 @@ QtObject {
     // Tooltip durations
     readonly property int toolTipDelayMs: 1500
     readonly property int toolTipTimeoutMs: 10000
+    // Wrap width for tooltips that may carry multi-line status text.
+    readonly property int toolTipMaxWidth: 360
 
     // Buttons
     readonly property int buttonRadius: 4

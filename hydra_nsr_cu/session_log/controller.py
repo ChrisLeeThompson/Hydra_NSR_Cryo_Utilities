@@ -2,48 +2,33 @@
 
 Owns the model, the file path, the in-memory list of Sessions (the
 UI's source of truth), and the handlers that turn runner signals
-into log entries. Receives workflow lifecycle events via slots that
-``AppController._wire_workflow`` connects in step 5; exposes
-QML-callable slots for note edits and the Settings-page guarded
-clear.
+into log entries. Exposes QML-callable slots for note edits and the
+Settings-page guarded clear.
 
-Architecture (one place, said once)
------------------------------------
-* **Source of truth: the in-memory model.** Every event updates
-  ``self._sessions`` and the :class:`SessionLogModel` rows
-  immediately. The UI reads from there.
-* **The file is a best-effort durable mirror.** Writes are tried
-  after in-memory updates; failures log and emit
-  :attr:`writeFailed`, but never raise upward and never roll back
-  the in-memory state. The user keeps seeing what just happened
-  even if the disk wrote.
-* **Self-heal on vanish.** Tracked via ``_has_been_written``: once
-  we know the file should exist, any subsequent append finding the
-  file missing triggers an :func:`atomic_rewrite` from the full
-  in-memory model plus the new entry. Settings-page ``clearAll``
-  resets the flag, so a manual clear is indistinguishable from a
+Invariants
+----------
+* **The in-memory model is the source of truth.** Every event
+  updates ``self._sessions`` and the :class:`SessionLogModel` rows
+  immediately; the UI reads from there.
+* **The file is a best-effort durable mirror.** Writes follow the
+  in-memory update; failures log and emit :attr:`writeFailed` but
+  never raise and never roll back in-memory state.
+* **Self-heal on vanish.** Once ``_has_been_written`` is set, an
+  append that finds the file missing triggers an
+  :func:`atomic_rewrite` from the full in-memory model.
+  ``clearAll`` resets the flag so a deliberate clear looks like a
   fresh install on the next write.
 * **Running-ness is controller state, not disk state.** The
   ``is_running`` row flag is derived from ``_current_session_id``
-  at row-build time via :meth:`_row_for` — the single chokepoint
-  every model-row construction routes through. It is never
-  persisted and never produced by reconciliation; a crash-orphaned
-  session reloads as Interrupted, never Running.
-* **Never load-bearing.** Nothing here can abort a workflow. A
-  :meth:`parameter_summary` that raised was already absorbed at
-  the runner layer; a write that fails here logs and continues; an
-  edit on a session that doesn't exist drops with a warning. All
-  observational, all best-effort.
+  in :meth:`_row_for`, the single chokepoint for row construction.
+  It is never persisted; a crash-orphaned session reloads as
+  Interrupted, never Running.
+* **Never load-bearing.** Nothing here can abort a workflow.
 
-Lifetime
---------
-``SessionLog`` is constructed eagerly in ``AppController.__init__``
-(no microscope dependency, no workflow runners yet). The runner
-signals are connected later in
-``AppController._create_microscope_dependent_services``, inside the
-existing ``_wire_workflow`` helper. Between construction and wiring,
-the model is already populated from disk (initial load), so the
-page renders correctly even before the microscope client comes up.
+``SessionLog`` is constructed eagerly by ``AppController`` (no
+microscope dependency) and populated from disk at construction;
+runner signals are connected later by ``_wire_workflow`` once the
+workflow runners exist.
 """
 from __future__ import annotations
 
@@ -79,8 +64,7 @@ logger = logging.getLogger(__name__)
 
 
 # Default file name inside the session_logs/ directory. The directory
-# leaves room for latent rotation (per the design — "latent capacity,
-# not built capability"); for now there's exactly one file.
+# leaves room for future log rotation; for now there's exactly one file.
 _DEFAULT_LOG_FILENAME = "session_log.jsonl"
 
 
@@ -99,12 +83,11 @@ def _new_session_id() -> str:
 def _now_iso_local() -> str:
     """Local-time ISO 8601 timestamp, seconds precision.
 
-    Local time per the step-4 design choice — your existing
-    ``logging_setup.py`` uses local time via Python's default
-    ``%(asctime)s``, and the session log lives on the same physical
-    machine the operator reads it from. ``timespec="seconds"`` keeps
-    the timestamps compact and readable; sub-second precision isn't
-    meaningful at this granularity.
+    Local time matches the console log (``logging_setup.py`` uses
+    Python's default ``%(asctime)s``), and the session log is read on
+    the same machine it is written on. ``timespec="seconds"`` keeps
+    the timestamps compact; sub-second precision isn't meaningful at
+    this granularity.
 
     Format example: ``"2026-05-19T14:32:17"``.
     """
@@ -158,8 +141,8 @@ class SessionLog(QObject):
 
     # File size notify — emitted after any write (success or
     # failure, if size could have changed). The Settings page binds
-    # the size readout to this property; the value drives the manual
-    # guarded-clear decision per the design's "size as cue" framing.
+    # the size readout to this property next to the guarded clear
+    # control.
     fileSizeChanged = Signal()
 
     def __init__(
@@ -306,10 +289,6 @@ class SessionLog(QObject):
         scientific / international convention; the same dash
         separator the storage format uses keeps the display
         visually consistent with the underlying ISO strings.
-        Earlier iterations had a today/older split and an ISO-
-        ordered (YYYY-MM-DD) variant, but the current uniform
-        DD-MM-YYYY format is the simplest to reason about and
-        sidesteps the year-boundary ambiguity entirely.
 
         Returns the input unchanged if parsing fails — better to
         show the raw ISO than to crash or hide it. Empty input
@@ -535,7 +514,7 @@ class SessionLog(QObject):
         if self._safe_rewrite_all():
             self._has_been_written = False
 
-    # --- Runner-signal handlers (wired by AppController in step 5) -------
+    # --- Runner-signal handlers (wired by AppController) -----------------
 
     @Slot(str)
     def on_workflow_started(self, workflow_id: str) -> None:
@@ -699,9 +678,9 @@ class SessionLog(QObject):
         """Record one finished activity. Called from ``activityRecorded``.
 
         Activities that arrive when no session is open are dropped
-        with a warning (defense against weird states — the writer
-        always emits ``workflowStarted`` first, so an activity with
-        no open session is a corruption / out-of-band signal).
+        with a warning — the writer always emits ``workflowStarted``
+        first, so an activity with no open session is an out-of-order
+        or out-of-band signal.
         """
         if self._current_session_id is None:
             logger.warning(
@@ -742,10 +721,9 @@ class SessionLog(QObject):
         # includes the new entry; the row-level ``dataChanged`` signal
         # propagates to the delegate's ``Repeater`` over the activities,
         # which renders the new activity inline within the session
-        # card. This replaces the older two-step "append activity row
-        # + update session header for activities_count" — now a single
-        # mutation, because the activities list is nested in the
-        # session row rather than living as separate rows.
+        # card. A single mutation suffices because the activities list
+        # is nested in the session row rather than held as separate
+        # rows.
         row_idx = self._model.find_session_row(session_id)
         if row_idx >= 0:
             self._model.update_row_at(
@@ -788,9 +766,7 @@ class SessionLog(QObject):
         # simple list comprehension is all this needs. The pointer is
         # None at startup, so every loaded row gets
         # is_running=False — a crash-orphaned session (begin entry,
-        # no end entry) renders "Interrupted", never "Running". The
-        # older interleaved-event shape (session row, then N
-        # activity rows, repeat) is gone.
+        # no end entry) renders "Interrupted", never "Running".
         rows = [self._row_for(s) for s in self._sessions]
         self._model.replace_all(rows)
 
@@ -812,12 +788,9 @@ class SessionLog(QObject):
     def _row_for(self, session: Session) -> Dict[str, Any]:
         """Build the model row for ``session``, deriving ``is_running``.
 
-        The single chokepoint between :class:`Session` and the model:
-        every row construction in this controller routes through here,
-        and :meth:`SessionLogModel.session_to_row` enforces that with
-        a required ``is_running`` keyword (a bypassed call site fails
-        with a ``TypeError`` instead of silently rendering a wrong
-        badge).
+        The single chokepoint between :class:`Session` and the model;
+        :meth:`SessionLogModel.session_to_row` enforces it with a
+        required ``is_running`` keyword.
 
         ``is_running`` is true only when *both* hold:
 
@@ -825,14 +798,11 @@ class SessionLog(QObject):
           one piece of runtime state the disk knows nothing about.
         * ``ended_at is None`` — the session hasn't been closed.
 
-        The second clause is load-bearing, not redundant:
-        :meth:`on_workflow_finished` deliberately clears the pointer
-        *last* (after :meth:`_safe_append_entry`, so a self-heal
-        rewrite serializes the session as ended). Its row update
-        therefore runs while the pointer still points at the closing
-        session — but ``ended_at`` is already populated on the
-        ``updated`` object by then, so the flag correctly computes
-        ``False`` without any per-call-site bookkeeping.
+        The second clause is load-bearing: :meth:`on_workflow_finished`
+        clears the pointer *last* (after :meth:`_safe_append_entry`, so
+        a self-heal rewrite serializes the session as ended), so its
+        row update runs while the pointer still targets the closing
+        session. ``ended_at`` is already populated by then.
         """
         is_running = (
             session.session_id == self._current_session_id
@@ -874,30 +844,21 @@ class SessionLog(QObject):
 
         Common path is a plain :func:`append_record`. A full
         :func:`atomic_rewrite` from the in-memory model is substituted
-        instead in two cases:
+        in two cases:
 
-        * **File vanished out-of-band.** We've previously written
-          successfully (``_has_been_written``) but the file now isn't
-          there — the user (or something) removed it. We don't honor
-          that quiet removal; the intentional-clear path is the
-          Settings-page guarded button, which routes through
-          :meth:`clearAll`.
-        * **A prior write failed** (``_resync_pending``). The earlier
-          entry was dropped from disk but kept in memory, so disk lags
-          the model. A full rewrite re-emits everything still in the
-          model, including the previously-failed entry.
+        * **File vanished out-of-band** (``_has_been_written`` is set
+          but the file is missing). The intentional-clear path is
+          :meth:`clearAll`; a quiet removal is not honored.
+        * **A prior write failed** (``_resync_pending``), so disk lags
+          the model. The rewrite re-emits every entry still in memory.
 
-        In both cases ``_serialize_all()`` already includes ``entry``
-        (the caller — on_workflow_started / on_activity_recorded /
-        on_workflow_finished — updates ``self._sessions`` BEFORE
-        invoking us), so the rewrite is serialize-only; appending
-        ``entry.to_dict()`` on top would double-write it.
+        Callers update ``self._sessions`` before invoking this, so
+        ``_serialize_all()`` already includes ``entry``; the rewrite
+        must not append it again.
 
-        Write failures (OSError — read-only directory, disk full,
-        file locked by an external program) log, emit
-        :attr:`writeFailed`, and arm ``_resync_pending`` so the next
-        write reconciles. The in-memory model and the running workflow
-        are unaffected.
+        ``OSError`` failures log, emit :attr:`writeFailed`, and arm
+        ``_resync_pending``. The in-memory model and the running
+        workflow are unaffected.
         """
         try:
             vanished = self._has_been_written and not self._file_path.exists()

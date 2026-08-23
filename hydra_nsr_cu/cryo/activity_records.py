@@ -10,9 +10,9 @@ Records are used by:
 * :class:`CryoActivitiesModel` — held as the underlying row data, with
   per-field roles exposed to QML.
 * :class:`CryoActivitiesController` — JSON-serialized for QSettings
-  persistence and the future Templates feature.
-* :class:`CPWorkflow._build_activities` (Session 5D) — to construct
-  concrete :class:`ActivityService` instances at workflow start.
+  persistence and the Templates feature.
+* :class:`CPWorkflow._build_activities` — to construct concrete
+  :class:`ActivityService` instances at workflow start.
 
 The two record types share an :attr:`activity_type` discriminator
 (matching ``ActivityService.activity_id``) so the controller can

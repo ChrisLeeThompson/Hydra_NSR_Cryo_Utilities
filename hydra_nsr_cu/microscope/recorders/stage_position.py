@@ -28,9 +28,9 @@ unchanged to ``stage.absolute_move``. Two reasons:
   capture and restore. Replaying the object sidesteps that latent
   fragility entirely.
 
-Restore is a single blocking ``absolute_move``. Like Home Stage's
-former restore, it is not interruptible mid-move, but a single
-absolute move is fast on real hardware and trivial on the simulated
+Restore is a single blocking ``absolute_move``. It is not
+interruptible mid-move, but a single absolute move is fast on real
+hardware and trivial on the simulated
 client. The *policy* decision of whether to restore at all (only on
 a fully successful run — never after a stop or exception) lives in
 the workflow runner, not here; this recorder just performs the

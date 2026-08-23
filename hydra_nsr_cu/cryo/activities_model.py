@@ -42,7 +42,7 @@ This "wide model" approach keeps the model class simple at the cost
 of some role declarations that aren't always meaningful. The
 alternative (separate models per activity type, or per-row dynamic
 roles) would complicate the QML side without commensurate benefit
-for the small number of activity types we expect to ever support.
+for the small number of activity types supported.
 """
 from __future__ import annotations
 

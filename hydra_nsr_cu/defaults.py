@@ -75,8 +75,7 @@ SPUTTER_DURATION_MAX_S: int = 999
 # MOVE_STAGE_TO_ORIGINAL_POSITION drives the stage-position recorder:
 # return the stage to where the session began, on a successful run.
 #
-# The two PFIB-restore toggles split what was formerly a single
-# "restore PFIB conditions" setting into independent axes (see
+# The two PFIB-restore toggles are independent axes (see
 # PFIBConditionsRecorder): one restores the beam's electrical state
 # (high voltage, beam current, and on/off), the other restores the
 # ion species (plasma gas). Splitting lets the user, e.g., revert
@@ -214,7 +213,7 @@ SPUTTER_ION_SPECIES_DEFAULT_INDEX: int = 0
 # means the same species on both sides by construction.
 PLASMA_GAS_SPECIES_NAMES: List[str] = [s["name"] for s in SPUTTER_ION_SPECIES]
 
-# Beam current default (amperes). Defaults to 0.12 µA — the v2.1
+# Beam current default (amperes). Defaults to 0.12 µA — the
 # Xenon-species default. When the user changes species in the UI, the
 # QML re-binds the current ComboBox to that species' default current
 # (which may differ from this app-wide default — the QML's per-species
@@ -258,7 +257,7 @@ CHAMBER_RECOVERY_MAX_S: int = 999
 # --- First-launch / Restore-Defaults activity list ----------------------
 
 # Default Cryo workflow shipped with the app: two pairs of
-# (Sputter, GIS) activities, matching v2.1's default. Each entry is
+# (Sputter, GIS) activities. Each entry is
 # a tuple of (activity_type, params_dict). Empty params dicts mean
 # "use all defaults from the constants above" — passed to the matching
 # Record dataclass's ``from_dict``, which fills missing fields.
@@ -293,7 +292,6 @@ TILT_AFTER_ROTATION_ANGLE_DEG_DEFAULT: int = 17
 # user-saved override exists. SettingsController persists the user's
 # edits across sessions; these are the values that ship.
 #
-# Match the v2.1 default behaviour:
 #   * Scan rotate after rotation: ON by default — the typical
 #     workflow rotates the stage and flips the scan rotation in
 #     one gesture.
@@ -311,7 +309,7 @@ TILT_AFTER_ROTATION_DEFAULT: bool = False
 # computed as ``slider_value × STAGE_Z_STEP_SIZE_M``; the wait between
 # ticks is ``STAGE_Z_TICK_INTERVAL_S`` (seconds).
 #
-# Step size matches v2.1 (2.5 µm/step). Tick interval (50 ms) keeps
+# Step size is 2.5 µm/step. Tick interval (50 ms) keeps
 # the slider responsive without spamming the AutoScript input queue.
 # At slider = ±25 (the AppConfig.qml limits) and these defaults, the
 # worker produces ~1.25 mm/s of effective Z velocity at the extremes.
@@ -344,13 +342,11 @@ STAGE_SAFE_RANGE_POLL_INTERVAL_S: float = 0.5
 # not physically dangerous ones — the user can still confirm
 # and proceed. Bump this as real hardware experience accrues.
 #
-# Tilt was previously included as a third axis-wise component
-# and was dropped: legitimate operating positions (e.g., the
-# GIS deposition default at 60°) routinely exceed any
-# conservative tilt threshold, and the radial XY check already
-# catches the operationally unusual positions where tilt would
-# correlate with concern. The snapshot still carries
-# ``stage_t_rad`` for future checks that may need it.
+# Tilt is deliberately not part of the check: legitimate operating
+# positions (e.g., the GIS deposition default at 60°) routinely
+# exceed any conservative tilt threshold, and the radial XY check
+# already catches the operationally unusual positions. The snapshot
+# still carries ``stage_t_rad`` for checks that may need it.
 
 STAGE_SAFE_RADIAL_RANGE_M: float = 8e-3   # 8 mm from chamber center
 

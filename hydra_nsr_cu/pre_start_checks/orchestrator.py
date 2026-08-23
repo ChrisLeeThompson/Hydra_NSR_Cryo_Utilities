@@ -34,25 +34,17 @@ class PreStartCheckSummary:
     Attributes:
         refused: All ``REFUSE`` results from this pass, in
             evaluation order. Non-empty means the start is
-            refused outright; the orchestrator emits the REFUSE
-            signal and the dismiss-only dialog opens. Any
-            ``needs_confirmation`` results in the same pass are
-            suppressed in that case (no point asking about
-            soft warnings when the start is already dead).
+            refused outright; any ``needs_confirmation`` results
+            in the same pass are not surfaced.
         needs_confirmation: All ``ASK_CONFIRM`` results from
             this pass. Non-empty (and ``refused`` empty) means
             the start is paused pending the confirm dialog.
-        needs_confirmation_types: Types of checks that produced
-            ``ASK_CONFIRM`` outcomes in this pass — i.e. the
-            classes (not instances) corresponding 1:1 with the
-            entries in :attr:`needs_confirmation`. Callers that
-            need to track "which check types has the user
-            confirmed for this run" (the workflow runner) read
-            this set and carry it forward into
-            :attr:`WorkflowRunner._confirmed_check_types` on the
-            accept path. A :class:`FrozenSet` rather than a
-            list because callers only need membership tests
-            and the dedup is by type already.
+        needs_confirmation_types: The check classes that produced
+            the :attr:`needs_confirmation` entries. Consumers carry
+            this set forward on the accept path so a later
+            mid-run re-check of the same types proceeds silently.
+            A :class:`FrozenSet` because callers only need
+            membership tests.
     """
     refused: List[PreStartCheckResult] = field(default_factory=list)
     needs_confirmation: List[PreStartCheckResult] = field(default_factory=list)
@@ -71,16 +63,8 @@ class PendingStart:
     of the consumer's ``respondToConfirmation`` slot.
 
     Frozen so the resume path can't accidentally mutate the
-    captured state mid-flight, and so the field types are
-    explicit at the declaration site.
-
-    Promotion history
-    -----------------
-    This class lived as a private ``_PendingStart`` in two
-    consumers (:mod:`hydra_nsr_cu.workflows.runner` and
-    :mod:`hydra_nsr_cu.stage_scan.controller`) until a third
-    consumer (:mod:`hydra_nsr_cu.stage_positions.controller`)
-    arrived and triggered the rule-of-three extraction.
+    captured state mid-flight. Shared by the workflow runner, the
+    stage scan controller, and the stage positions controller.
 
     Attributes:
         confirmed_check_types: Set of check types the user is
@@ -102,18 +86,11 @@ def run_pre_start_checks(
 
     Deduplicates by ``type(check)``: the first instance of any
     given check class is evaluated; subsequent instances of the
-    same class are silently dropped. Activities can therefore
-    independently contribute the same check (e.g. both Sputter
-    Coat and Home Stage want
-    ``StagePositionWithinSafeRangeCheck``) without double-
-    evaluation.
+    same class are silently dropped, so several activities can
+    contribute the same check without double evaluation.
 
-    Patches each non-PASS result's ``check_type`` field via
-    :func:`dataclasses.replace` so callers can correlate results
-    back to their originating type. The check itself doesn't set
-    the field (it doesn't know its own class context with
-    certainty); the orchestrator owns the back-reference
-    semantics.
+    Sets each result's ``check_type`` field so callers can
+    correlate results back to their originating type.
 
     Args:
         checks: Iterable of :class:`PreStartCheck` instances to
@@ -160,39 +137,25 @@ def to_dialog_items(
 ) -> List[Dict[str, str]]:
     """Convert check results to the dialog's structured payload.
 
-    Used by the pre-start check consumers (workflow runners,
-    :class:`~hydra_nsr_cu.stage_scan.controller.StageScanController`,
-    :class:`~hydra_nsr_cu.stage_positions.controller.StagePositionsController`)
-    to build the payload passed in the ``preStartCheckRefused`` /
-    ``preStartCheckNeedsConfirmation`` signals. QML assigns the
-    list to ``ConfirmDialog.checkItems``, which renders one
-    icon-plus-description row per entry.
+    Consumers build the payload passed in the
+    ``preStartCheckRefused`` / ``preStartCheckNeedsConfirmation``
+    signals from this; QML assigns it to
+    ``ConfirmDialog.checkItems``. The output is data, not markup —
+    QML owns every presentation decision.
 
-    Unlike the HTML formatter this replaced (deleted with the
-    ``Signal(str)`` → ``Signal(list)`` protocol switch), this
-    emits *data*, not markup — the Python layer states the facts
-    (title, message) and QML owns every presentation decision
-    (icon, color, typography, stacking). A future visual
-    redesign of the dialog therefore never touches this module.
-
-    Items with empty ``title`` and ``message`` are skipped (a
-    defensive no-op for results that don't carry user-facing
-    copy — PASS results shouldn't reach this function in
-    practice). Either field may be empty on its own; the QML
-    delegate collapses the corresponding label.
+    Items with both ``title`` and ``message`` empty are skipped
+    (PASS results shouldn't reach this function in practice).
+    Either field may be empty on its own.
 
     Args:
         results: The results to convert. Typically the
             ``refused`` or ``needs_confirmation`` list from a
-            :class:`PreStartCheckSummary`, or the mixed abort
-            list built by
-            :meth:`WorkflowRunner._mid_run_pre_start_check_passes`.
+            :class:`PreStartCheckSummary`.
 
     Returns:
         A list of ``{"title": ..., "message": ...}`` dicts with
-        plain-string values, in input order. PySide6 marshals
-        the list across ``Signal(list)`` as a JS array of
-        objects. Empty list if no items contribute copy.
+        plain-string values, in input order. Empty list if no
+        items contribute copy.
     """
     items: List[Dict[str, str]] = []
     for result in results:

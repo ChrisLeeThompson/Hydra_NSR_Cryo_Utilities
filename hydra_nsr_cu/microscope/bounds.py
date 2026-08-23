@@ -2,7 +2,7 @@
 
 This module is the QML-facing surface for hardware-domain values that
 live in :mod:`hydra_nsr_cu.defaults`. The pattern is read-only and
-inverted from the v2.1 / early-v3 arrangement:
+inverted from earlier versions:
 
 * **Source of truth** is Python (``defaults.py``).
 * **QML reads** these values through this controller, registered as

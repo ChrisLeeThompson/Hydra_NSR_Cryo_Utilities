@@ -285,7 +285,7 @@ Item {
                         )
                         homeStageContainer.statusMessage = (msg !== "")
                             ? msg
-                            : "Failed — see log for details"
+                            : "Failed (see console log)"
                     }
                     // status === "stop": no icon, no tooltip.
                 }
@@ -451,7 +451,7 @@ Item {
                         )
                         activityContainer.statusMessage = (msg !== "")
                             ? msg
-                            : "Failed — see log for details"
+                            : "Failed (see console log)"
                     }
                     // status === "stop": no icon, no tooltip.
                 }

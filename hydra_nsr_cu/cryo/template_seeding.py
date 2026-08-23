@@ -19,8 +19,8 @@ Consequences of the copy-if-missing rule:
   ``default_v2.json``) so copy-if-missing delivers it.
 
 Seeding is best-effort and never raises: an unwritable directory just
-means the Save/Load dialogs behave as they did before this module
-existed (first save into a missing directory fails with an actionable
+means the Save/Load dialogs fall back to the OS default location
+(first save into a missing directory fails with an actionable
 error). File I/O lives here rather than in :mod:`templates`, which is
 deliberately pure (see its module docstring).
 """

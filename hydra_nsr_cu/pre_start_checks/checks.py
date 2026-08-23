@@ -80,11 +80,10 @@ class ZLinkedToFreeWorkingDistanceCheck(PreStartCheck):
     which proceeding without a link produces a correct result.
 
     The user resolves a REFUSE by linking Z in the Microscope
-    Control application (xT) and clicking Start again. The
-    codebase deliberately does not auto-link from a "Fix it"
-    button — see the pre-start check design notes for the
-    rationale (linking against an incorrect FWD masks the
-    verification step that linking is meant to embody).
+    Control application (xT) and clicking Start again. The app
+    deliberately does not auto-link from a "Fix it" button:
+    linking against an incorrect FWD would mask the verification
+    step that linking is meant to embody.
     """
 
     def evaluate(self, snapshot: HardwareSnapshot) -> PreStartCheckResult:
@@ -108,35 +107,18 @@ class StagePositionWithinSafeRangeCheck(PreStartCheck):
     surface possibly-unintended setups, not to block legitimate
     work. The user has final say.
 
-    The threshold is defined in :mod:`hydra_nsr_cu.defaults`:
+    The stage's radial distance from chamber center
+    (``sqrt(x² + y²)``) must be within
+    :data:`hydra_nsr_cu.defaults.STAGE_SAFE_RADIAL_RANGE_M`. The
+    comparison is inclusive (see :func:`is_within_safe_range`), so
+    a position exactly at the limit passes. Tilt is intentionally
+    excluded: legitimate operating positions (such as the GIS
+    deposition default at 60°) routinely exceed any conservative
+    tilt threshold.
 
-    * The stage's radial distance from chamber center
-      (``sqrt(x² + y²)``) must be within
-      ``STAGE_SAFE_RADIAL_RANGE_M``.
-
-    The violation message reports the current radial distance
-    and the safe range, so the user can decide whether the
-    position was deliberate (e.g., a custom liftout geometry)
-    or an accident (e.g., still set up from yesterday's
-    experiment).
-
-    Tilt is intentionally not part of this check: legitimate
-    operating positions (such as the GIS deposition default at
-    60°) routinely exceed any conservative tilt threshold, and
-    the radial check catches the operationally unusual positions
-    where tilt would correlate with concern. If a future need
-    for a tilt-aware check appears, ``snapshot.stage_t_rad``
-    is still available.
-
-    Boundary semantics
-    ------------------
-    The comparison is inclusive ``<=`` (see
-    :func:`is_within_safe_range`). A position sitting exactly
-    at the limit (radial = 8 mm with an 8 mm range) passes — the
-    safe range is inclusive of its endpoint. This is consistent
-    with how the user reads the threshold in
-    :mod:`hydra_nsr_cu.defaults` ("8 mm" includes the endpoint)
-    and avoids floating-point misery at the boundary.
+    The violation message reports the current radial distance and
+    the safe range, so the user can judge whether the position was
+    deliberate or left over from an earlier setup.
     """
 
     def evaluate(self, snapshot: HardwareSnapshot) -> PreStartCheckResult:

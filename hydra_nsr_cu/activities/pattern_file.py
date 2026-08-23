@@ -9,9 +9,8 @@ vertices, spot pitch, and application-file name the activity feeds to
 
 Kept in the activities package (not the microscope ops layer) because
 it has no hardware dependency — it's pure parsing consumed only by
-:class:`hydra_nsr_cu.activities.sputter_coat.SputterCoatService`. Ported
-from v2's ``parse_pattern_file`` (see the monolithic v2 reference), with
-two improvements: a single :class:`PatternFileError` for every failure
+:class:`hydra_nsr_cu.activities.sputter_coat.SputterCoatService`. It
+provides a single :class:`PatternFileError` for every failure
 mode (so the activity catches one exception type and surfaces its
 message) and explicit existence/extension validation split out into
 :func:`validate_pattern_file`.
@@ -67,7 +66,6 @@ def validate_pattern_file(path: Path) -> None:
 
     Raises :class:`PatternFileError` with a user-facing message if the
     file is missing, is not a regular file, or doesn't end in ``.ptf``.
-    Mirrors v2's three checks.
     """
     if not path.exists():
         raise PatternFileError(f"Pattern file not found: {path}")

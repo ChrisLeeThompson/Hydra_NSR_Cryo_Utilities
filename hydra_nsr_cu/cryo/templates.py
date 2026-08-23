@@ -6,65 +6,31 @@ machine's QSettings; templates store ``position_name`` because names
 are unique (enforced by the Add/Edit dialogs in
 :mod:`stage_positions`) and meaningful across machines.
 
-The module also strips ``instance_id`` on save (templates are
-blueprints, not instances; ids are minted fresh on load) and applies
-defensive repair on load — out-of-range durations get clamped,
-wrong-type fields fall back to defaults, unknown ``activity_type``
-entries are skipped — with each repair recorded in an ``issues`` list
-the caller surfaces in the load summary.
-
-The module is split into two layers:
-
-* **Per-entry adapters.** :func:`template_dict_from_record` and
-  :func:`record_from_template_dict` translate a single activity entry
-  in either direction. Pure functions, no I/O.
-* **Payload orchestration.** :func:`build_template_payload` and
-  :func:`parse_template_payload` handle the top-level wrapper
-  (``schema_version``, ``name``, ``description``, ``date_created``,
-  ``cryo_prep_page_activities``) and dispatch each entry to the
-  per-entry adapters. Still pure functions — file I/O lives in the
-  controller layer (:class:`CryoActivitiesController`), so this
-  module is fully testable without Qt or the filesystem.
-
-Layering
---------
-* Imports :mod:`activity_records` for the record dataclasses; their
-  ``default_factory`` for ``instance_id`` is what mints fresh ids on
-  load (we simply don't pass an ``instance_id`` argument).
-* Does not import :class:`StagePositionsController` directly. Consumers
-  pass any object satisfying the :class:`PositionsLookup` Protocol —
-  the real controller satisfies it naturally; tests pass an in-memory
-  fake without spinning up Qt or QSettings.
+``instance_id`` is stripped on save (templates are blueprints, not
+instances; ids are minted fresh on load). All functions here are pure
+— file I/O lives in :class:`CryoActivitiesController` — and the
+positions dependency is the :class:`PositionsLookup` Protocol rather
+than the controller itself, so the module is testable without Qt.
 
 Validation policy
 -----------------
 Two-tier:
 
-* **Structural failures** (file isn't a JSON object, schema version
+* **Structural failures** (not a JSON object, schema version
   mismatch, ``cryo_prep_page_activities`` missing or not a list)
   produce a :class:`LoadResult` with ``records=None`` and an
-  ``error_message``. The controller rejects the file and leaves the
-  existing list untouched.
-* **Data failures** (missing field, wrong-type field, out-of-range
-  numeric, unmatched ``position_name``, unknown ``activity_type``)
-  are repaired silently into the ``issues`` list. The controller
-  surfaces the issues via the load-summary modal.
+  ``error_message``; the controller leaves the existing list
+  untouched.
+* **Data failures** are repaired and recorded in the ``issues`` list
+  the controller surfaces in the load summary: missing field →
+  silent default (normal forward-compat); wrong-type field → default
+  + issue; out-of-range numeric → clamp + issue; unmatched
+  ``position_name`` → empty ``position_id`` + issue (an empty or
+  missing name is a normal "no selection", not an issue); unknown
+  ``activity_type`` → entry dropped + issue.
 
-Within data failures, the per-field policy is:
-
-* Missing field: silent default. Templates predating a parameter we
-  added later are normal forward-compat.
-* Wrong-type field: default + issue.
-* Out-of-range numeric field: clamp + issue.
-* Unmatched ``position_name``: empty ``position_id`` + issue. Empty
-  or missing ``position_name`` is a normal "no selection" state, not
-  an issue.
-* Unknown ``activity_type``: drop the entry from the list + issue.
-
-A missing ``schema_version`` field is treated as v1 (lenient — old
-templates and hand-edited files load); a present-but-mismatched
-``schema_version`` is rejected (strict — protects against loading
-formats this version doesn't understand).
+A missing ``schema_version`` is treated as v1 (lenient); a
+present-but-mismatched one is rejected (strict).
 """
 from __future__ import annotations
 
@@ -521,8 +487,8 @@ def _sputter_record_from_template_dict(
         issues, "Sputter Coat chamber_recovery_s",
     )
     # instance_id intentionally omitted — the dataclass field's
-    # default_factory mints a fresh id, which is exactly what we want
-    # for template loads.
+    # default_factory mints a fresh id, which is the intended
+    # behavior for template loads.
     return SputterCoatRecord(
         position_id=position_id,
         ion_species_index=ion_species_index,
@@ -580,7 +546,7 @@ def _coerce_int(
 
     Missing key is silent — uses ``default`` with no issue, which is
     the normal forward-compat case where the template predates a
-    parameter we added later.
+    parameter added in a later version.
     """
     if key not in d:
         return default

@@ -19,10 +19,9 @@ effect on the next GIS Deposition, or toggling
 ``moveStageToOriginalPosition`` flipping the Home Stage's restore
 behavior moments before it runs).
 
-Capturing the values once at start removes that surprise: the running
-workflow uses the values that were in effect at the moment Start was
-clicked, regardless of what the user does in the Settings page during
-the run.
+Capturing the values once at commit time means the running workflow
+uses the values that were in effect when the run started, regardless
+of what the user does in the Settings page during the run.
 
 The Settings page UI also disables the workflow-affecting controls
 during a run as a UX cue (see :attr:`AppController.anyWorkflowRunning`).

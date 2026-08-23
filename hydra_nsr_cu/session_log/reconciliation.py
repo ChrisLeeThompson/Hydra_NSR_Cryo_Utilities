@@ -1,6 +1,6 @@
 """Reconstruct :class:`Session` view objects from loaded log entries.
 
-The persistence layer hands us a flat sequence of entries in file
+The persistence layer yields a flat sequence of entries in file
 order — three kinds (``session_begin``, ``session_end``, ``activity``)
 tied together by ``session_id``. Reconciliation pairs them into
 :class:`Session` view objects with their activity children attached
@@ -16,7 +16,7 @@ Qt, no file system, no microscope.
 
 Edge-case policy
 ----------------
-The session log is observational and the file may be in a weird state
+The session log is observational and the file may be inconsistent
 (crash-torn, hand-edited, a write the OS dropped). Reconciliation
 never raises — it produces the cleanest view of the survivors and
 logs each anomaly for forensics:
@@ -105,8 +105,8 @@ def reconcile(entries: List[LogEntry]) -> List[Session]:
     The two-phase split lets phase 2 attach a session_end that appears
     *before* its session_begin in file order — which shouldn't happen
     on a sane writer but could happen if the file was hand-edited or
-    if a future feature ever reorders writes. We pay one extra pass
-    to get that resilience.
+    if a future feature ever reorders writes. The extra pass is cheap
+    at this data volume.
     """
     # Track session order by file order of begin entries. The dict
     # provides O(1) lookup; the list preserves the order we want to

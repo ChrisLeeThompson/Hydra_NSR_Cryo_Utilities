@@ -1,110 +1,38 @@
 """Records and restores the ion beam's user-visible state.
 
-Captured fields:
+Captures ``plasma_gas``, ``high_voltage``, ``beam_current``, and
+``is_on`` — the PFIB *conditions* a sputter or deposition activity
+mutates during setup. Nothing else (patterning, scan rotation, FOV,
+detectors, ...) is saved.
 
-* ``plasma_gas`` — the current plasma gas (ion species).
-* ``high_voltage`` — accelerating voltage in volts.
-* ``beam_current`` — beam current in amperes.
-* ``is_on`` — whether the beam is currently on.
+Restore order is gas → high voltage → beam current → on/off. A plasma
+gas change can shift the valid HV / beam-current ranges, so those are
+written only after the gas; on/off goes last because the beam can be
+toggled regardless of the other values. Capture is always whole;
+restore is selective via two required flags, ``restore_species``
+(plasma gas) and ``restore_beam_electrical`` (HV, beam current, on/off),
+with the order preserved whichever groups are enabled. Restoring only
+the electrical group writes the captured HV / current against the
+current gas; AutoScript snaps beam current to the nearest valid preset.
 
-Not captured:
-
-* Patterning state, scan rotation, FOV, magnification, dwell time,
-  detector configuration, etc. The recorder is named after PFIB
-  *conditions* — i.e. the parameters a sputter or deposition activity
-  would mutate as part of its setup. State that activities don't
-  touch isn't worth saving and restoring.
-
-Restore order matters
----------------------
-On real hardware, plasma gas changes can affect the valid ranges for
-HV and beam current. Setting HV to 30 kV before the gas is settled
-could clip to a lower allowed value and silently leave the system at
-the wrong voltage. So the restore sequence is:
-
-    1. Plasma gas
-    2. High voltage
-    3. Beam current
-    4. Beam on/off
-
-Beam-on-off is restored last because the beam can be safely toggled
-regardless of the other parameter values. Toggling first might
-require the parameters to be re-validated.
-
-Beam-on-off semantics
----------------------
-If the beam was *off* at capture and is *on* at restore: turn off.
-If the beam was *on* at capture and is *off* at restore: turn on.
-If the state matches at restore, no-op.
-
-Server wait timeouts and readback verification
-----------------------------------------------
 AutoScript calls block until the xT server reports the requested
-state — but the server's *own* internal wait can give up first. A
-plasma-species switch (gas purge + source re-strike + conditioning)
-can run long enough that the server raises an
-``ApplicationServerException`` like "Wait for beam to turn on timed
-out" while the operation is still in flight and may yet complete.
-Server errors carry only a human-readable message — there is no
-stable error taxonomy — so this module never branches on exception
-text. It disambiguates by *readback* instead: after an exception (or
-a write whose readback doesn't yet match), it polls the readback
-property for a bounded settle window to distinguish "server gave up
-waiting but the operation completed late" from "actually failed".
-The windows are this module's post-hoc verification deadlines — the
-server's internal waits are not controllable from AutoScript.
+state, but the server's own wait can give up first (e.g. "Wait for
+beam to turn on timed out") while a species switch is still completing.
+Server errors carry no stable taxonomy, so this module never branches
+on exception text; it verifies by *readback* over a bounded settle
+window instead. Policy: ``plasma_gas`` is never re-issued (verify only;
+re-striking a source mid-transition is unsafe); ``turn_on`` gets at
+most one retry, and only once the beam is verified off and the species
+readback matched; HV / beam current are single idempotent writes with
+no readback compare. No cleanup writes on failure — hardware stays as
+the last successful write left it, and failures come back in the
+returned list.
 
-Recovery policy:
-
-* ``plasma_gas`` — never re-issued. The switch is a heavyweight
-  hardware sequence; re-issuing it mid-transition risks compounding
-  an undefined source state. Verify by readback only; if the readback
-  never reaches the target, the source needs an operator in xT.
-* ``turn_on`` — at most one retry (two calls total per restore), and
-  only after the settle window has verified the beam is genuinely
-  off AND the species readback matched its target — never strike a
-  source that may still be mid-transition. The retry is the
-  operator-equivalent of clicking Beam On once more after a server
-  wait timeout.
-* ``high_voltage`` / ``beam_current`` — single attempt, no readback
-  verification: they're fast idempotent writes, and beam_current
-  legitimately snaps to the nearest gas-specific preset, so an exact
-  readback compare would manufacture false failures.
-* No cleanup writes on the failure path — hardware is left exactly
-  as the last successful operation left it, and the failure is
-  reported to the caller via the returned failure list.
-
-Abandoning a slow restore
--------------------------
-:meth:`PFIBConditionsRecorder.restore` accepts a ``should_abandon``
-predicate, checked between field writes and between settle-poll
-iterations. When it returns True, ALL remaining work is skipped —
-abandon means abandon, not "finish the cheap ones" — and a marker
-with ``field == ABANDONED_FIELD`` is appended to the returned
-failure list. An AutoScript call already in flight cannot be
-interrupted; abandon takes effect the moment it returns.
-
-Selective restore
------------------
-:meth:`PFIBConditionsRecorder.restore` takes two required keyword
-flags so a caller can restore the two state groups independently:
-
-* ``restore_species`` — plasma gas (ion species).
-* ``restore_beam_electrical`` — high voltage, beam current, and
-  on/off. On/off is grouped with HV/current because it's part of the
-  beam's electrical operating state; ion species (gas) is the
-  orthogonal axis.
-
-Capture is always whole (all four fields); only restore is selective.
-The canonical gas → HV → current → on/off order is preserved
-regardless of which groups are enabled, so a both-groups restore
-still sets gas before HV/current.
-
-Restoring only ``restore_beam_electrical`` (the common "revert
-voltage/current but keep the sputter species" case) sets the captured
-HV/current against the *current* gas. AutoScript snaps beam_current to
-the nearest preset valid for that gas — the expected "or nearest
-current" behavior.
+:meth:`PFIBConditionsRecorder.restore` also takes a ``should_abandon``
+predicate, checked between writes and between settle polls. When it
+returns True all remaining work is skipped and an :data:`ABANDONED_FIELD`
+marker is appended; an AutoScript call already in flight can't be
+interrupted, so abandon takes effect when it returns.
 """
 from __future__ import annotations
 
@@ -522,8 +450,8 @@ class PFIBConditionsRecorder:
     ) -> None:
         """Restore the beam's on/off state; verify + one gated retry for on.
 
-        ``turn_off`` keeps the historical single-attempt behavior (it
-        is fast and doesn't strike the source). ``turn_on`` gets the
+        ``turn_off`` is a single attempt (it is fast and doesn't
+        strike the source). ``turn_on`` gets the
         full treatment: verify by ``is_on`` readback after an
         exception (or a call that returns with the beam still off),
         then — only if the beam is verified genuinely off AND the
@@ -580,7 +508,7 @@ class PFIBConditionsRecorder:
         # on a GENUINE off observation, so re-check with one explicit
         # read. A read that raises leaves the beam state unknown — no
         # retry; a read that returns True means the beam actually came
-        # on and we recovered after all.
+        # on and the restore recovered after all.
         try:
             if self._ion_beam.is_on:
                 logger.info(

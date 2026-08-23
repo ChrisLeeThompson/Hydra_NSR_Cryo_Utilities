@@ -19,3 +19,21 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+-------------------------------------------------------------------------------
+THIRD-PARTY ASSETS -- NOT COVERED BY THE MIT LICENSE ABOVE
+-------------------------------------------------------------------------------
+
+The MIT license above applies to the source code in this project only.
+
+The files qml_resources/assets/catbug_waiting_color.png and
+qml_resources/assets/catbug_waiting_color.svg are excluded from "the Software"
+as that term is used above. They depict artwork owned by its respective rights
+holders, are included solely for use within this application, and are NOT
+licensed for redistribution, modification, sublicensing, or sale. No rights to
+that artwork are granted by this license, and none are claimed by the copyright
+holder named above.
+
+Anyone redistributing this project should replace those files with their own
+artwork.

@@ -78,13 +78,11 @@ class PreStartCheckResult:
         check_type: The :class:`PreStartCheck` subclass that
             produced this result. Populated by the orchestrator
             (not by the check itself) so callers can correlate
-            results back to their originating type — used by
-            :meth:`WorkflowRunner._mid_run_pre_start_check_passes`
-            to consult :attr:`WorkflowRunner._confirmed_check_types`
-            and decide whether an ASK_CONFIRM is already approved.
-            ``None`` on results constructed outside the orchestrator
-            (e.g. test fixtures); callers must treat None as
-            "unknown type" and therefore "not pre-confirmed."
+            results back to their originating type, e.g. to decide
+            whether an ASK_CONFIRM was already approved earlier in
+            the run. ``None`` on results constructed outside the
+            orchestrator; callers must treat None as "unknown type"
+            and therefore "not pre-confirmed."
     """
     outcome: PreStartCheckOutcome
     title: str = ""

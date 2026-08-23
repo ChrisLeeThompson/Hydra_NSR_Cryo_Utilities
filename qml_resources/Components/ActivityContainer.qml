@@ -283,12 +283,27 @@ Rectangle {
 
                         HoverHandler { id: statusIconHover }
 
-                        ToolTip.text: root.statusMessage
-                        ToolTip.visible: statusIconHover.hovered
-                                         && root.statusMessage !== ""
-                                         && root.activityState !== "idle"
-                                         && root.activityState !== "running"
-                        ToolTip.delay: AppConfig.toolTipDelayMs
+                        // Explicit ToolTip (not the attached form) so the
+                        // text wraps: exception details arrive as a
+                        // second line and can run long.
+                        ToolTip {
+                            id: statusToolTip
+                            text: root.statusMessage
+                            visible: statusIconHover.hovered
+                                     && root.statusMessage !== ""
+                                     && root.activityState !== "idle"
+                                     && root.activityState !== "running"
+                            delay: AppConfig.toolTipDelayMs
+                            contentItem: Text {
+                                text: statusToolTip.text
+                                font: statusToolTip.font
+                                color: statusToolTip.palette.toolTipText
+                                wrapMode: Text.Wrap
+                            }
+                            width: Math.min(
+                                implicitWidth, AppConfig.toolTipMaxWidth
+                            )
+                        }
 
                         BusyIndicator {
                             id: busyIndicator

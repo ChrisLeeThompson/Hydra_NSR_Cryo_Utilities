@@ -9,46 +9,26 @@ Three entry kinds, one line of JSONL each:
   entry written — can still be annotated.
 
 * :class:`SessionEndEntry` — written at workflow finish. Carries the
-  outcome (``all_complete``) and total wall-clock duration. May not
-  exist for an interrupted session; reconciliation explicitly handles
-  the missing-end case.
+  outcome (``all_complete``) and total wall-clock duration. Absent
+  for an interrupted session; reconciliation handles that case.
 
-* :class:`ActivityLogEntry` — written once per activity finish. Carries
-  the activity's result, duration, last status message, and the
-  parameter dict returned by
+* :class:`ActivityLogEntry` — written once per activity finish.
+  Carries the result, duration, last status message, and the
+  parameter dict from
   :meth:`hydra_nsr_cu.activities.base.ActivityService.parameter_summary`.
-  Also carries a latent ``notes`` field that the system writes empty
-  and the UI does not yet surface — per the design's "latent capacity,
-  not built capability" principle, this leaves room for per-activity
-  annotation later without a file-format migration.
+  Its ``notes`` field is written empty and not yet surfaced in the
+  UI; it reserves room for per-activity annotation without a
+  file-format migration.
 
-The discriminator field is ``kind``; :func:`entry_from_dict` dispatches
-on it. This mirrors :func:`hydra_nsr_cu.cryo.activity_records.record_from_dict`
-(which dispatches on ``activity_type``) — same pattern, different
-domain.
+The discriminator field is ``kind``; :func:`entry_from_dict`
+dispatches on it. *Entry* (an activity that has run) is deliberately
+distinct from the cryo package's *Record* (an activity to run).
 
-Naming
-------
-The cryo subpackage uses *Record* for objects that describe activities
-to RUN. This subpackage uses *Entry* for objects that record activities
-that HAVE RUN. The vocabulary distinction is deliberate and prevents
-namespace collision with
-:data:`hydra_nsr_cu.cryo.activity_records.ActivityRecord`.
-
-Schema versioning
------------------
-Every entry carries a ``"v"`` field stamping the schema version. The
-loader / dispatcher logs a warning on unfamiliar versions but still
-attempts to parse, on the principle that the log is observational and
-"some data" beats "no data." Mandatory fields missing → the
-``from_dict`` raises and the caller drops that entry with a warning.
-
-Forward-compatibility limit: unknown extra fields on a known entry
-kind do not break loading, but they are NOT preserved through a
-rewrite (the dataclass's ``to_dict`` only emits known fields). For
-v=1 → v=1 round-trips this is invisible; if a future v=2 ever ships,
-older versions reading-then-rewriting would silently drop the v=2
-fields. Acceptable trade-off at v=1; revisit if v=2 ever arrives.
+Every entry carries a ``"v"`` schema-version field. The loader warns
+on an unfamiliar version but still attempts to parse; a missing
+mandatory field makes ``from_dict`` raise and the caller drops that
+entry. Unknown extra fields survive loading but are not preserved
+through a rewrite (``to_dict`` emits only known fields).
 """
 from __future__ import annotations
 
@@ -78,8 +58,8 @@ class SessionBeginEntry:
     Plain (non-frozen) dataclass: the ``notes`` field is editable
     after the fact, mutated via the in-memory model and persisted
     by atomic full-file rewrite. The other fields are write-once
-    by convention — enforced by the SessionLog controller layer
-    (step 4), not by the dataclass itself.
+    by convention — enforced by the SessionLog controller layer,
+    not by the dataclass itself.
     """
 
     session_id: str
@@ -182,15 +162,14 @@ class ActivityLogEntry:
     """One activity outcome recorded in the log.
 
     The ``params`` dict is the verbatim
-    :meth:`ActivityService.parameter_summary` output — already verified
-    JSON-serializable by step 1's contract assertion. Activities are
-    free to grow their own param shapes over time; the log persists
-    whatever they emit at the time of the run.
+    :meth:`ActivityService.parameter_summary` output, which is
+    JSON-serializable by contract. Activities are free to grow their
+    own param shapes over time; the log persists whatever they emit
+    at the time of the run.
 
-    The ``notes`` field is the latent per-activity annotation slot:
+    The ``notes`` field is a reserved per-activity annotation slot:
     written empty by the system, not currently surfaced in the UI,
-    preserved by ``to_dict`` so that round-tripping doesn't drop
-    future content if the UI ever surfaces it.
+    and preserved by ``to_dict`` so round-tripping never drops it.
     """
 
     session_id: str
@@ -227,8 +206,8 @@ class ActivityLogEntry:
             )
         # ``params`` may be absent or non-dict in malformed data; coerce
         # to an empty dict rather than raising — the entry is still
-        # useful even if its params got corrupted (you still see the
-        # activity ran).
+        # useful even if its params got corrupted (the activity is
+        # still shown as having run).
         raw_params = d.get("params")
         params = raw_params if isinstance(raw_params, dict) else {}
         return cls(

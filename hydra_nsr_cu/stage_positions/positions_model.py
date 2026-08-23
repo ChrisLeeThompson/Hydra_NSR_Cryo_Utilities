@@ -15,8 +15,8 @@ The model exposes:
 * Standard ``QAbstractListModel`` machinery for delegate consumption
   via custom roles.
 * ``count`` as a Qt property for the dialog's name-uniqueness check.
-* ``get(int)`` returning a JavaScript dict — matches the convention
-  the v3 QML expected (``positionsModel.get(i).name``).
+* ``get(int)`` returning a JavaScript dict
+  (``positionsModel.get(i).name``).
 * ``find_index_by_id(str)`` for translating ids to indices when the
   controller needs to update or remove a row by id.
 
@@ -81,8 +81,8 @@ class SavedStagePosition:
 def _new_id() -> str:
     """Short, opaque, collision-resistant id.
 
-    8 hex chars from a UUID4 gives ~4 billion possible values — vastly
-    more than we'll ever generate in this app. Long enough to be
+    8 hex chars from a UUID4 gives ~4 billion possible values — far
+    more than this app will ever generate. Long enough to be
     visually distinct in logs, short enough to be unobtrusive in
     serialized form.
     """
@@ -145,9 +145,7 @@ class StagePositionsModel(QAbstractListModel):
 
     def roleNames(self) -> Dict[int, QByteArray]:
         # Delegate properties: model.name, model.id, model.posX, ...
-        # Naming `posX` matches the v3 QML which used those names
-        # against the placeholder ListModel. Keeping consistent names
-        # avoids a QML rewrite of the delegate.
+        # These are the names the QML delegate references.
         return {
             self.NameRole: QByteArray(b"name"),
             self.IdRole: QByteArray(b"id"),
@@ -168,9 +166,9 @@ class StagePositionsModel(QAbstractListModel):
     def get(self, index: int) -> Dict[str, Any]:
         """Return a dict representation of the row at ``index``.
 
-        Matches the v3 QML's expectation
-        (``positionsModel.get(i).name``). Returns an empty dict on
-        out-of-range index — caller handles that by falling back.
+        QML reads it as ``positionsModel.get(i).name``. Returns an
+        empty dict on an out-of-range index — the caller handles that
+        by falling back.
         """
         if not (0 <= index < len(self._records)):
             return {}

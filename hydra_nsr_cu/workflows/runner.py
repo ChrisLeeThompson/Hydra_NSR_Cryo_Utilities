@@ -2,92 +2,28 @@
 
 The runner exposes a uniform interface to QML (``start()``, ``stop()``,
 ``isRunning``, status signals) regardless of which workflow it's running.
-Page-specific subclasses extend this with their own parameters and
-property surface — they don't override the threading machinery.
+Page-specific subclasses add their own parameters and property surface;
+the threading machinery lives entirely here.
 
-Subclasses must implement two methods:
+Subclasses implement two hooks, both called on the GUI thread:
 
-* :meth:`WorkflowRunner._validate_pre_start` — called on the GUI thread
-  inside :meth:`start` before any worker is spawned. Returns a
-  :class:`PreStartValidationResult` with one of three outcomes:
+* :meth:`WorkflowRunner._validate_pre_start` — runs inside :meth:`start`
+  before any worker is spawned and returns a
+  :class:`PreStartValidationResult` (``"ok"``, ``"refused"``, or
+  ``"needs_confirmation"``). On ``"needs_confirmation"`` the runner
+  holds a :class:`PendingStart` until QML answers via
+  :meth:`respondToConfirmation`; ``"ok"`` and an accepted confirmation
+  both go through :meth:`_on_commit_to_run` and then spawn the worker.
+* :meth:`WorkflowRunner._next_pending_activity` — called once per loop
+  iteration (via ``BlockingQueuedConnection`` from the worker). Returns
+  the next :class:`ActivityService`, ``None`` to end the run as
+  complete, or :meth:`_abort_fetch` to end it as not-complete.
 
-  - ``"ok"``: the start proceeds; :meth:`_on_commit_to_run` fires and
-    the worker is spawned immediately.
-  - ``"refused"``: the start is refused outright. Subclasses are
-    expected to have already emitted user-facing diagnostics (a
-    :attr:`statusUpdated` breadcrumb and, if applicable,
-    :attr:`preStartCheckRefused` with a dialog message).
-  - ``"needs_confirmation"``: the start is paused pending the
-    confirm dialog. Subclasses are expected to have already emitted
-    :attr:`preStartCheckNeedsConfirmation`. The runner waits for
-    QML to call :meth:`respondToConfirmation` with the user's choice.
-
-  For backwards compatibility, subclasses may still return ``bool``:
-  ``True`` is treated as ``"ok"`` and ``False`` as ``"refused"``. The
-  bool form has no way to express ``"needs_confirmation"`` — subclasses
-  using the ASK_CONFIRM path MUST return :class:`PreStartValidationResult`.
-
-* :meth:`WorkflowRunner._next_pending_activity` — called on the GUI
-  thread (via ``BlockingQueuedConnection`` from the worker) once per
-  iteration. Returns the next :class:`ActivityService` to run, or
-  ``None`` to end the loop. Subclasses walk their own source-of-truth
-  (a static list for RT-style workflows, the activity model for
-  Cryo-style workflows) and skip any activity whose key is in the
-  ``executed_keys`` argument.
-
-Iteration model
----------------
-Activities are fetched one at a time as the worker runs, rather than
-snapshotted at start. This lets the user add activities to the queue
-or toggle switches mid-run — anything still in the source-of-truth
-when the worker asks for the next pending activity will run, as long
-as it hasn't already been executed in this run.
-
-The "key" used to identify an executed activity is
-``f"{activity_id}/{instance_id}"``. For single-instance activities
-(RT-style), ``instance_id`` is empty and the key collapses to
-``"{activity_id}/"``, which is unique within a run.
-
-If an activity fails validation when it's about to be fetched (e.g.
-a GIS Deposition added mid-run that references a deleted position),
-the subclass emits its own validation signal and returns
-:meth:`WorkflowRunner._abort_fetch` to end the workflow as
-not-complete (returning ``None`` would end it as *complete*, firing
-the success-only restores). The reasoning is workflow-specific: see
-:class:`CPWorkflow`'s discussion of layered deposition. Subclasses
-that don't have such a constraint can choose to skip-and-continue
-instead.
-
-Two-step Start
---------------
-The pre-start check system can refuse the start outright (REFUSE
-outcome) or ask the user to confirm (ASK_CONFIRM outcome). The
-runner threads the ASK_CONFIRM path through a small state machine:
-
-* :meth:`start` calls :meth:`_validate_pre_start`. If the result is
-  ``"needs_confirmation"``, the runner stashes a :class:`PendingStart`
-  and returns; QML is expected to open the confirm dialog (driven by
-  the :attr:`preStartCheckNeedsConfirmation` signal the subclass
-  emitted).
-* QML calls :meth:`respondToConfirmation` with the user's accept/reject.
-* Accept → :meth:`_on_commit_to_run` + :meth:`_spawn_worker`.
-* Reject → "Start cancelled" status, pending state cleared.
-
-The ``"ok"`` outcome bypasses the dialog and goes straight to
-:meth:`_on_commit_to_run` + :meth:`_spawn_worker`.
-
-The commit hook (:meth:`_on_commit_to_run`) is the natural place for
-subclasses to capture start-time state (e.g. a
-:class:`WorkflowSettingsSnapshot`, a PFIB recorder). It fires only on
-paths committed to a run — never on a refused or cancelled start.
-
-TODO: the QThread/worker/deleteLater teardown pattern used here also
-appears in :mod:`app_controller` (for the connect thread) and
-:mod:`stage_positions.controller` (for the stage move thread). If a
-fourth case appears, or any of these three need to evolve, consider
-extracting a small ``ThreadedTask`` helper that absorbs the lifecycle
-plumbing. Holding off for now because the contexts differ enough that
-a premature abstraction might lose more than it saves.
+Activities are fetched one at a time rather than snapshotted at start,
+so additions and switch toggles made mid-run take effect at the next
+fetch. An executed activity is identified by the key
+``f"{activity_id}/{instance_id}"`` (``"{activity_id}/"`` for
+single-instance activities).
 """
 from __future__ import annotations
 
@@ -116,6 +52,7 @@ from ..activities.base import (
     StatusCallback,
 )
 from ..microscope import MicroscopeClientLike
+from ..status_text import SEE_LOG, exception_detail, shorten
 from ..pre_start_checks import (
     PendingStart,
     PreStartCheck,
@@ -186,25 +123,19 @@ def _format_duration(seconds: float) -> str:
     """Render an elapsed-time duration for the status bar.
 
     Used by :meth:`WorkflowRunner._on_finished` to compose the
-    "Workflow complete. Total duration: ..." message at the end of a
+    "Workflow complete — <duration>" message at the end of a
     successful run.
 
     Format rules:
 
     * Seconds are rounded to the nearest whole integer.
     * Sub-minute durations omit the minutes component
-      (``"23 s"``, not ``"0 min 23 s"``) — a "0 min" prefix would be
-      visual noise in the status bar's tight horizontal slot.
+      (``"23 s"``, not ``"0 min 23 s"``).
     * Minute-and-above durations use the ``"M min S s"`` form.
     * No hours tier — a 95-minute workflow renders as ``"95 min 5 s"``.
-      Workflows over an hour are rare in practice; if that changes we
-      can grow the formatter without affecting callers.
 
-    The boundary case worth pinning down: rounding can push a value
-    just under 60 seconds into the next tier
-    (``59.6`` → ``round`` → ``60`` → ``"1 min 0 s"``). This is
-    intentional — the rounded value is what the user thinks of as
-    elapsed time, so the formatting tier should follow.
+    Rounding is applied before choosing the tier, so ``59.6`` renders
+    as ``"1 min 0 s"``.
 
     Examples:
         >>> _format_duration(0.0)
@@ -276,11 +207,9 @@ FetchOutcome = Union[ActivityService, _FetchAborted, None]
 class PreStartValidationResult:
     """Tri-state outcome from a subclass's :meth:`_validate_pre_start`.
 
-    Replaces the legacy ``bool`` return type. The base class also
-    accepts ``bool`` for backwards compatibility (``True`` → ``"ok"``,
-    ``False`` → ``"refused"``), so existing subclasses that have not
-    been ported yet continue to work; only the ``"needs_confirmation"``
-    outcome requires the new dataclass form.
+    The base class also accepts a plain ``bool`` (``True`` → ``"ok"``,
+    ``False`` → ``"refused"``); only the ``"needs_confirmation"``
+    outcome requires the dataclass form.
 
     Attributes:
         outcome: One of ``"ok"``, ``"refused"``, ``"needs_confirmation"``.
@@ -327,7 +256,7 @@ class _WorkflowWorker(QObject):
     #                  activities (RT Prep style).
     activityStarted = Signal(str, str)
 
-    # Emitted at the end of each activity. Six args:
+    # Emitted at the end of each activity. Seven args:
     #   activity_id  — same as above.
     #   instance_id  — same as above.
     #   result       — ActivityResult value as string ("complete",
@@ -335,41 +264,33 @@ class _WorkflowWorker(QObject):
     #   duration_s   — wall-clock seconds the activity ran for, measured
     #                  with ``time.monotonic()`` immediately around the
     #                  ``activity.run(...)`` call. Reported on every
-    #                  outcome (complete / stop / exception) — the
-    #                  measurement is real regardless of how the
-    #                  activity exited, and consumers can decide how to
-    #                  render partial durations. ``time.monotonic()`` is
-    #                  used (not ``time.time()``) so an NTP sync or
-    #                  manual clock change during a run doesn't perturb
+    #                  outcome (complete / stop / exception).
+    #                  ``time.monotonic()`` is used (not ``time.time()``)
+    #                  so a clock change during a run doesn't perturb
     #                  the measurement.
-    #   last_status  — the most recent string the activity passed to
-    #                  its ``on_status`` callback before returning or
-    #                  raising. Empty string if the activity never
-    #                  emitted a status. Used by pages to render an
-    #                  informative tooltip on the exception status icon
-    #                  (e.g. "GIS purge: failed — port not found"
-    #                  rather than a generic "Failed"). The full
-    #                  traceback continues to land in the log via
-    #                  ``logger.exception`` and is intentionally not
-    #                  exposed to the UI — tooltips are too narrow for
-    #                  multi-line content.
+    #   last_status  — the most recent short status the activity passed
+    #                  to ``on_status`` before returning or raising
+    #                  (on the uncaught-raise path, a "<phase> — failed
+    #                  (see console log)" line built by the worker).
+    #                  Empty string if the activity never emitted a
+    #                  status. Shown on the exception status icon's
+    #                  tooltip. The full traceback goes to the log only.
+    #   detail       — optional longer summary for the tooltip's second
+    #                  line (an exception's "<Type>: <message>"); never
+    #                  shown in the status bar. Empty when none.
     #   params       — dict from ``ActivityService.parameter_summary()``,
     #                  captured once before ``activity.run()`` (the
-    #                  activity is single-use and stateless beyond its
-    #                  constructor, per its base-class contract, so
-    #                  capture-before is equivalent to capture-after
-    #                  while giving us a populated value even when
-    #                  ``run()`` raises). Forwarded to the runner's
-    #                  public :attr:`WorkflowRunner.activityRecorded`
-    #                  signal for SessionLog consumption. ``{}`` on the
-    #                  rare case ``parameter_summary()`` itself raised
-    #                  — see :func:`_safe_parameter_summary`. Declared
-    #                  as ``object`` in the Signal signature for the
-    #                  same reason ``_ConnectWorker.finished`` uses
-    #                  ``object`` for its Optional payload — Qt's meta
-    #                  type system doesn't directly support dict
-    #                  shapes, and the receiver knows what to expect.
-    activityFinished = Signal(str, str, str, float, str, object)
+    #                  activity is stateless beyond its constructor, so
+    #                  capture-before equals capture-after and yields a
+    #                  populated value even when ``run()`` raises).
+    #                  Forwarded to :attr:`WorkflowRunner.activityRecorded`
+    #                  for SessionLog consumption. ``{}`` if
+    #                  ``parameter_summary()`` itself raised — see
+    #                  :func:`_safe_parameter_summary`. Declared as
+    #                  ``object`` in the Signal signature because Qt's
+    #                  meta type system doesn't directly support dict
+    #                  shapes.
+    activityFinished = Signal(str, str, str, float, str, str, object)
 
     # Forwarded to the StatusBar progress bar: (current_seconds, total_seconds).
     progressUpdated = Signal(int, int)
@@ -543,12 +464,19 @@ class _WorkflowWorker(QObject):
                 # iteration — so an exception in activity N doesn't
                 # surface a stale message from activity N-1.
                 #
+                # ``last_detail`` is the optional longer summary (an
+                # exception's "<Type>: <message>") that goes to the
+                # tooltip only, never to the status bar.
+                #
                 # A list-of-one (rather than ``nonlocal``) keeps the
                 # closure simple and explicit about the mutation.
                 last_status: List[str] = [""]
+                last_detail: List[str] = [""]
 
-                def _on_status(text: str) -> None:
+                def _on_status(text: str, detail: str = "") -> None:
+                    text = shorten(text)
                     last_status[0] = text
+                    last_detail[0] = detail
                     self.statusUpdated.emit(text)
 
                 # Capture the activity's parameter summary once for both
@@ -577,30 +505,20 @@ class _WorkflowWorker(QObject):
                     )
                 except Exception as exc:
                     activity_duration = time.monotonic() - t0_activity
-                    # Surface the exception's message in the tooltip so
-                    # the user sees the actual cause and not just the
-                    # phase label the activity was in when it failed.
-                    # Per the AutoScript SDK, ``str(exc)`` is a
-                    # human-readable description; the full traceback is
-                    # in the log via ``logger.exception`` below. Two
-                    # cases:
-                    #   * No prior on_status (activity raised before
-                    #     reporting any phase): synthesize
-                    #     "<ExcType>: <message>" so the tooltip has
-                    #     both a kind and a cause.
-                    #   * Prior on_status present (activity reported a
-                    #     phase, then raised uncaught): append the
-                    #     exception message to that phase with an
-                    #     em-dash separator. Activities that catch
-                    #     their own exceptions handle this themselves
-                    #     via ``report_activity_exception``; this
-                    #     branch is the fallback for uncaught
-                    #     propagation.
-                    exc_msg = str(exc)
+                    # Uncaught-raise fallback (activities that catch
+                    # their own errors go through
+                    # ``report_activity_exception`` instead). The bar
+                    # gets a short line built from the last reported
+                    # phase; the exception summary goes to the tooltip
+                    # via ``last_detail``; the traceback goes to the
+                    # log below.
                     if last_status[0]:
-                        last_status[0] = f"{last_status[0]} — {exc_msg}"
+                        last_status[0] = shorten(
+                            f"{last_status[0].rstrip('.')} — failed {SEE_LOG}"
+                        )
                     else:
-                        last_status[0] = f"{type(exc).__name__}: {exc_msg}"
+                        last_status[0] = f"Activity failed {SEE_LOG}"
+                    last_detail[0] = exception_detail(exc)
                     logger.exception(
                         "Workflow: activity %r raised after %.2fs; "
                         "stopping workflow",
@@ -611,6 +529,7 @@ class _WorkflowWorker(QObject):
                         ActivityResult.EXCEPTION.value,
                         activity_duration,
                         last_status[0],
+                        last_detail[0],
                         params,
                     )
                     executed_keys.add(key)
@@ -623,6 +542,7 @@ class _WorkflowWorker(QObject):
                     activity_id, instance_id, result.value,
                     activity_duration,
                     last_status[0],
+                    last_detail[0],
                     params,
                 )
                 logger.info(
@@ -743,7 +663,7 @@ class _FetchHelper(QObject):
             # validationFailed signal). Route through _abort_fetch
             # like every other abort site so the run's final status
             # names the abort instead of falling through to the
-            # misleading "Workflow stopped." (we run on the GUI
+            # misleading "Workflow stopped" (we run on the GUI
             # thread, so recording the reason is safe here too).
             logger.exception(
                 "Workflow: _next_pending_activity raised; ending workflow"
@@ -872,7 +792,7 @@ class WorkflowRunner(QObject):
         # the final status-bar text ("" = none). Needed because
         # _on_finished composes the final bar text after _after_run
         # has returned — a plain on_status() emit from the hook would
-        # be clobbered by "Workflow complete...".
+        # be clobbered by "Workflow complete — ...".
         self._after_run_warning: str = ""
         # _after_run_record: optional synthetic session-log record
         # emitted through activityRecorded in _on_finished, while the
@@ -890,7 +810,7 @@ class WorkflowRunner(QObject):
         # fetch round-trip. Read by _on_finished — also on the GUI
         # thread, strictly after the abort — so the final status bar
         # text preserves WHY the run ended instead of the misleading
-        # "Workflow stopped." Empty when the run wasn't aborted.
+        # "Workflow stopped" Empty when the run wasn't aborted.
         self._abort_status: str = ""
 
         # GUI-thread bridge for the worker's fetch loop. Long-lived
@@ -918,11 +838,10 @@ class WorkflowRunner(QObject):
         self._total_duration_s: float = 0.0
 
         # Parallel store of the most recent ``on_status`` text each
-        # activity emitted before finishing. Used by QML pages (via
+        # activity emitted before finishing, plus the exception summary
+        # on a second line when there is one. Used by QML pages (via
         # :meth:`lastStatusMessage`) to compose the exception-path
-        # tooltip on the activity's status icon — typically something
-        # like "GIS purge: failed — port not found", which is far more
-        # useful than a generic "Failed" badge. On the COMPLETE and
+        # tooltip on the activity's status icon. On the COMPLETE and
         # STOP paths the message is recorded too but pages don't
         # surface it (a completed activity's tooltip shows its
         # duration; a stopped activity has no icon and no tooltip).
@@ -942,12 +861,9 @@ class WorkflowRunner(QObject):
         # Confirmed check types carried into the running workflow.
         # Populated on the accept path of :meth:`respondToConfirmation`
         # (or reset to empty for the OK path of :meth:`start`).
-        # Subclasses' mid-run pre-start check passes (step 8 of the
-        # pre-start check rollout) consult this set to avoid
-        # reprompting for ASK_CONFIRM checks the user already
-        # confirmed at workflow start. Currently unused at this stage
-        # of the rollout but populated correctly so subsequent steps
-        # don't need to revisit the lifecycle.
+        # :meth:`_mid_run_pre_start_check_passes` consults this set to
+        # avoid re-refusing ASK_CONFIRM checks the user already
+        # confirmed at workflow start.
         self._confirmed_check_types: FrozenSet[Type[PreStartCheck]] = frozenset()
 
     # --- Subclass hooks ----------------------------------------------------
@@ -955,64 +871,37 @@ class WorkflowRunner(QObject):
     def _validate_pre_start(self) -> Union[PreStartValidationResult, bool]:
         """Hook invoked on the GUI thread inside :meth:`start`.
 
-        Returns a :class:`PreStartValidationResult` carrying one of
-        three outcomes:
+        Returns a :class:`PreStartValidationResult`:
 
         * ``"ok"`` — proceed with the run.
-        * ``"refused"`` — refuse the start. The subclass is expected
-          to have emitted its own diagnostics (a
-          :attr:`statusUpdated` breadcrumb plus, where applicable,
-          :attr:`preStartCheckRefused` with a dialog message,
-          and any subclass-specific signals like
-          ``validationFailed`` for per-row UI feedback).
-        * ``"needs_confirmation"`` — pause the start pending user
-          confirmation. The subclass is expected to have emitted
-          :attr:`preStartCheckNeedsConfirmation` so QML can open the
-          dialog. The runner stashes a :class:`PendingStart` and
-          waits for :meth:`respondToConfirmation`. The
-          ``pending_confirmed_check_types`` field on the result is
-          carried into :attr:`_confirmed_check_types` on the accept
-          path.
+        * ``"refused"`` — refuse the start. The subclass has already
+          emitted its own diagnostics (a :attr:`statusUpdated`
+          breadcrumb and, where applicable, :attr:`preStartCheckRefused`
+          or a per-row ``validationFailed``).
+        * ``"needs_confirmation"`` — the subclass has emitted
+          :attr:`preStartCheckNeedsConfirmation`; the runner waits for
+          :meth:`respondToConfirmation`. ``pending_confirmed_check_types``
+          is carried into :attr:`_confirmed_check_types` on accept.
 
-        For backwards compatibility, this hook may also return
-        ``bool``: ``True`` → ``"ok"``, ``False`` → ``"refused"``. The
-        bool form has no way to express ``"needs_confirmation"``, so
-        subclasses using the ASK_CONFIRM path MUST return
-        :class:`PreStartValidationResult`.
-
-        Default returns ``PreStartValidationResult(outcome="ok")``.
-
-        Note that this is the *all-or-nothing* validation pass at
-        Start time: if any currently-enabled activity is invalid,
-        the entire start is refused. Validation of activities added
-        mid-run happens inside :meth:`_next_pending_activity` and is
-        per-fetch.
+        A plain ``bool`` is also accepted (``True`` → ``"ok"``,
+        ``False`` → ``"refused"``) but cannot express
+        ``"needs_confirmation"``. Default returns ``"ok"``.
         """
         return PreStartValidationResult(outcome="ok")
 
     def _on_commit_to_run(self) -> None:
-        """Hook called immediately before spawning the worker.
+        """Hook called on the GUI thread immediately before spawning the worker.
 
-        Subclasses override to capture any state that should reflect
-        the moment the run is committed to actually starting — e.g.
-        a :class:`WorkflowSettingsSnapshot`, a PFIB recorder. Runs
-        on the GUI thread.
+        Subclasses override to capture state that should reflect the
+        moment the run is committed — e.g. a
+        :class:`WorkflowSettingsSnapshot` or a PFIB recorder. Fires on
+        the ``"ok"`` path of :meth:`start` and the accept path of
+        :meth:`respondToConfirmation`; never on a refused or cancelled
+        start.
 
-        Two paths fire this hook:
-
-        * OK path of :meth:`start` — :meth:`_validate_pre_start`
-          returned ``"ok"`` (or legacy ``True``).
-        * Accept path of :meth:`respondToConfirmation` — the user
-          confirmed an ASK_CONFIRM dialog.
-
-        It does NOT fire on the refused or rejected paths, so the
-        captured state is bound only to runs that actually start.
-
-        Default does nothing. Exceptions are caught in
-        :meth:`_spawn_worker` and cause the start to abort cleanly
-        — capture failure before spawn is fatal to the run (unlike
-        :meth:`_before_run`, which is best-effort on the worker
-        thread).
+        Default does nothing. An exception here is caught in
+        :meth:`_spawn_worker` and refuses the start cleanly (unlike
+        :meth:`_before_run`, which is best-effort on the worker thread).
         """
         return None
 
@@ -1057,43 +946,19 @@ class WorkflowRunner(QObject):
         """Return the next activity to run, or ``None`` if no more are pending.
 
         Called on the GUI thread (via ``Qt.BlockingQueuedConnection``
-        from the worker thread) once per iteration of the workflow
-        loop. Subclasses walk their own source-of-truth and return
-        the first activity that is enabled and whose key is not in
+        from the worker) once per loop iteration. Subclasses walk their
+        own source-of-truth and return the first enabled activity whose
+        key (``f"{activity_id}/{instance_id}"``) is not in
         ``executed_keys``.
 
-        The "key" format is ``f"{activity_id}/{instance_id}"``. For
-        single-instance activities (``instance_id == ""``), the key
-        collapses to ``"{activity_id}/"`` which is unique within a
-        run.
-
-        Subclasses are responsible for parameter validation of
-        activities returned here. If an activity is enabled but
-        invalid (e.g. a GIS Deposition with a stale position
-        reference added mid-run), the subclass should emit its own
-        validation signal and return :meth:`_abort_fetch` to abort
-        the workflow. See :class:`CPWorkflow` for the rationale
-        specific to layered deposition.
-
-        Skipping an enabled activity
-        ----------------------------
-        Subclasses MAY mutate the passed-in ``executed_keys`` set to
-        mark an activity as "handled but skipped" — useful when an
-        activity can't be built due to a non-fatal configuration
-        issue (e.g. an empty GIS port name in :class:`RTWorkflow`)
-        and the workflow should continue to subsequent activities.
-        After mutating the set, the subclass should fall through to
-        check the next candidate activity within the same call,
-        rather than returning ``None`` (which would end the loop).
-
-        Ending the loop
-        ---------------
-        Returning ``None`` means "nothing left to run" and, when
-        every executed activity completed, ends the run as
-        ``all_complete=True`` (restores fire, "Workflow complete").
-        Returning :meth:`_abort_fetch`'s sentinel ends the run as
-        NOT complete: the success-only cleanup is skipped and the
-        recorded abort reason becomes the final status text.
+        Subclasses validate the activities they return. For an enabled
+        but invalid activity, emit a validation signal and return
+        :meth:`_abort_fetch`, which ends the run as not-complete (the
+        success-only cleanup is skipped and the recorded abort reason
+        becomes the final status). Returning ``None`` ends the run as
+        complete. To skip an activity and continue, add its key to
+        ``executed_keys`` and fall through to the next candidate within
+        the same call.
         """
         raise NotImplementedError
 
@@ -1102,7 +967,7 @@ class WorkflowRunner(QObject):
 
         Records ``status`` as the run's abort reason and emits it on
         the status bar immediately; :meth:`_on_finished` re-emits it
-        as the final text (in place of "Workflow stopped.") so it
+        as the final text (in place of "Workflow stopped") so it
         survives any later breadcrumbs. Pass an empty ``status`` to
         keep a reason recorded earlier in the same fetch call (e.g.
         by :meth:`_mid_run_pre_start_check_passes`).
@@ -1127,40 +992,24 @@ class WorkflowRunner(QObject):
     ) -> bool:
         """Run pre-start checks at mid-run fetch time.
 
-        Called by subclasses from :meth:`_next_pending_activity`
-        just before returning a candidate activity. Returns ``True``
-        if the activity can proceed; ``False`` if the workflow must
-        abort (caller returns ``self._abort_fetch()`` — no message
-        argument, the reason recorded here stands — which ends the
-        worker loop with ``all_complete=False``).
+        Called by subclasses from :meth:`_next_pending_activity` just
+        before returning a candidate activity. Mid-run cannot pause for
+        a confirmation dialog (the worker is blocked on the fetch, so
+        waiting for input on the GUI thread would deadlock), so
+        ``ASK_CONFIRM`` outcomes proceed only if their check type is in
+        :attr:`_confirmed_check_types`; otherwise they are treated as
+        ``REFUSE``.
 
-        Mid-run cannot pause for a confirmation dialog. The worker
-        thread is blocked on the fetch via
-        :class:`_FetchHelper`'s ``BlockingQueuedConnection``; opening
-        a dialog and waiting for user input on the GUI thread would
-        deadlock the fetch round-trip. Instead, ``ASK_CONFIRM``
-        outcomes are honored only if the check type is already in
-        :attr:`_confirmed_check_types` — meaning the user
-        pre-confirmed it at workflow start. ``ASK_CONFIRM`` whose
-        type is NOT pre-confirmed is treated as ``REFUSE`` (abort).
-
-        On abort, emits :attr:`preStartCheckRefused` with the
-        check-result items and a ``"Pre-start check failed"``
-        status breadcrumb, and records the same text as the run's
-        abort reason (``_abort_status``) so :meth:`_on_finished`
-        re-emits it as the final status. The user sees the REFUSE
-        dialog mid-workflow; the run ends as not-complete, so the
-        success-only restores don't fire.
+        On abort, emits :attr:`preStartCheckRefused` and a
+        ``"Pre-start check failed"`` breadcrumb, and records that text
+        as the run's abort reason. The caller then returns
+        ``self._abort_fetch()`` with no message so the recorded reason
+        stands.
 
         Args:
             activity_class: The class whose
                 :meth:`ActivityService.pre_start_checks` to run.
-                The classmethod is called fresh each time, so the
-                current set of checks for that class is always used.
-            microscope: Used to gather a fresh snapshot. Passed in
-                rather than stored on the base class — the base
-                doesn't need to know about microscope types, and
-                each subclass holds its own ``self._microscope``.
+            microscope: Used to gather a fresh hardware snapshot.
 
         Returns:
             ``True`` if the activity can proceed; ``False`` if the
@@ -1225,25 +1074,14 @@ class WorkflowRunner(QObject):
         No-op if a workflow is already running on this runner or if
         a previous :meth:`start` is still awaiting the user's
         confirmation. Returns immediately — the actual work happens
-        on the worker thread (or is deferred entirely until
+        on the worker thread (or is deferred until
         :meth:`respondToConfirmation` is called).
 
-        Tri-state dispatch
-        ------------------
-        :meth:`_validate_pre_start` returns one of three outcomes:
-
-        * ``"ok"`` — commit and spawn immediately
-          (:meth:`_on_commit_to_run` then :meth:`_spawn_worker`).
-        * ``"refused"`` — log and return; the subclass has already
-          emitted user-facing diagnostics.
-        * ``"needs_confirmation"`` — stash a :class:`PendingStart`
-          and return. QML opens the confirm dialog (driven by the
-          :attr:`preStartCheckNeedsConfirmation` signal the subclass
-          emitted) and calls back via :meth:`respondToConfirmation`.
-
-        Backwards compatibility: subclasses that still return ``bool``
-        are normalized to ``"ok"`` / ``"refused"``. The ASK_CONFIRM
-        path requires the dataclass return type.
+        Dispatches on :meth:`_validate_pre_start`'s outcome: ``"ok"``
+        commits and spawns immediately; ``"refused"`` logs and returns;
+        ``"needs_confirmation"`` stashes a :class:`PendingStart` and
+        waits for QML to call :meth:`respondToConfirmation`. A ``bool``
+        return is normalized to ``"ok"`` / ``"refused"``.
         """
         if self._is_running:
             logger.warning(
@@ -1265,8 +1103,8 @@ class WorkflowRunner(QObject):
 
         raw_result = self._validate_pre_start()
 
-        # Bool-compat shim: subclasses that haven't been ported to
-        # the tri-state return type still return ``bool``. Map it.
+        # Bool-compat shim: map a plain ``bool`` return onto the
+        # tri-state result.
         if isinstance(raw_result, bool):
             result = PreStartValidationResult(
                 outcome="ok" if raw_result else "refused",
@@ -1308,20 +1146,15 @@ class WorkflowRunner(QObject):
 
         Accept path: records the confirmed check types in
         :attr:`_confirmed_check_types` (so mid-run re-checks of the
-        same types won't reprompt), fires :meth:`_on_commit_to_run`,
-        and spawns the worker via :meth:`_spawn_worker`.
+        same types proceed), then spawns the worker via
+        :meth:`_spawn_worker`.
 
-        Reject path: emits a ``"Start cancelled"`` status bar
-        breadcrumb and clears the pending state. The captured
-        :attr:`_confirmed_check_types` from the previous run is
-        intentionally NOT cleared here — clearing happens at the
-        next :meth:`start` call (the new run starts with whatever
-        confirmation result it produces). A cancelled start is a
-        no-op as far as the next run is concerned.
+        Reject path: emits a ``"Start cancelled"`` breadcrumb and
+        clears the pending state. :attr:`_confirmed_check_types` is
+        left as-is; the next :meth:`start` resets it.
 
-        Defensive no-op if no start is pending (e.g. QML fires the
-        signal twice through a race, or a stale dialog dismiss
-        arrives after a separate state change).
+        No-op if no start is pending (e.g. a duplicate or stale dialog
+        dismiss).
         """
         pending = self._pending_start
         self._pending_start = None
@@ -1473,50 +1306,28 @@ class WorkflowRunner(QObject):
     def wait_for_stop(self, timeout_ms: int = _SHUTDOWN_JOIN_TIMEOUT_MS) -> bool:
         """Block until the worker thread has fully exited; for shutdown.
 
-        Intended to be called on the GUI thread during application
-        teardown, AFTER :meth:`stop` has requested cancellation, so the
-        caller can join the worker before the microscope client is
-        disconnected. The worker holds ops objects that reference the
-        SDB client, and disconnecting while a hardware op is in flight
-        risks an indeterminate state — so we wait for the worker to
-        leave :meth:`run` before letting teardown proceed.
-
-        This calls ``quit()`` on the thread DIRECTLY rather than
-        relying on the queued ``worker.finished -> thread.quit``
-        connection wired in :meth:`start`. During shutdown the GUI
-        thread is blocked here and cannot deliver that queued slot, so
-        the thread's event loop would otherwise never exit and the wait
-        would always time out. (The same mechanism is why the connect
-        thread's plain ``wait`` can miss its queued result — see
-        ``AppController.shutdown``.) ``quit()`` is queued behind the
-        still-running ``run()`` and takes effect the moment ``run()``
-        returns at its next safe stop check.
+        Called on the GUI thread during application teardown, after
+        :meth:`stop` has requested cancellation, so the worker is
+        joined before the microscope client is disconnected (the worker
+        holds ops objects that reference the SDB client, and
+        disconnecting mid-op risks an indeterminate hardware state).
 
         Returns ``True`` if the thread finished (or was never running),
         ``False`` on timeout. Safe to call when no workflow is running.
 
-        Known bounded edge case: the worker fetches each next activity via
-        :class:`_FetchHelper`, which emits over a
-        ``BlockingQueuedConnection`` and parks the worker until the GUI
-        thread services :meth:`_FetchHelper._on_fetch`. If shutdown enters
-        this method during that brief inter-activity fetch round-trip — and
-        only then — the worker is parked waiting on the (now blocked) GUI
-        thread while the GUI thread waits on the worker: a transient cyclic
-        wait. ``quit()`` cannot break it (the worker is in ``run``, not its
-        event loop), so ``wait`` runs to the full ``timeout_ms``, logs the
-        "did not exit in time" warning, and teardown proceeds. This is
-        bounded (the timeout), self-recovering, and has no correctness or
-        data impact — only a slow quit in a narrow timing window (the
-        worker spends almost all of its life inside ``activity.run``, where
-        stop is noticed within ~1 s). The robust fix would be to service
-        events during the join, but this app deliberately avoids
-        event-loop re-entry during teardown (see ``AppController.shutdown``
-        and the M5 in-flight-connect handling), so the bounded stall is
-        accepted rather than risk teardown re-entrancy.
+        Bounded edge case: if shutdown lands during the brief
+        inter-activity fetch round-trip, the worker is parked on the
+        blocked GUI thread (see :class:`_FetchHelper`) and the join
+        runs to the full timeout before teardown proceeds. This is
+        accepted rather than servicing events during teardown.
         """
         thread = self._thread
         if thread is None or not thread.isRunning():
             return True
+        # Note: quit() is called directly rather than relying on the
+        # queued ``worker.finished -> thread.quit`` connection — the GUI
+        # thread is blocked in wait() and cannot deliver that slot. The
+        # quit is queued behind run() and takes effect when it returns.
         thread.quit()
         if thread.wait(timeout_ms):
             return True
@@ -1584,18 +1395,13 @@ class WorkflowRunner(QObject):
     def lastStatusMessage(
         self, activity_id: str, instance_id: str,
     ) -> str:
-        """Return the most recent status text the named activity emitted.
+        """Return the named activity's last status text for its tooltip.
 
-        Captured by the worker by wrapping the activity's
-        ``on_status`` callback — the value is whatever the activity
-        last passed to ``on_status`` before returning or raising. On
-        the exception path, if the activity raised without ever
-        emitting a status, the worker synthesizes a single-line
-        ``"<ExceptionType>: <message>"`` summary instead so the
-        tooltip is never empty for a failed activity.
-
-        Returns an empty string if no run has produced a message for
-        this key (same conditions as :meth:`activityDuration`).
+        This is the last text the activity passed to ``on_status``;
+        on the exception path a second line carries the
+        ``"<ExceptionType>: <message>"`` summary. Returns an empty
+        string if no run has produced a message for this key (same
+        conditions as :meth:`activityDuration`).
         """
         return self._status_messages_by_key.get(
             (activity_id, instance_id), "",
@@ -1646,7 +1452,7 @@ class WorkflowRunner(QObject):
     ) -> None:
         self.activityStatusChanged.emit(activity_id, instance_id, "running")
 
-    @Slot(str, str, str, float, str, object)
+    @Slot(str, str, str, float, str, str, object)
     def _on_activity_finished(
         self,
         activity_id: str,
@@ -1654,6 +1460,7 @@ class WorkflowRunner(QObject):
         result_str: str,
         duration_s: float,
         last_status: str,
+        detail: str,
         params: Dict[str, Any],
     ) -> None:
         # result_str is one of "complete", "stop", "exception". We pass
@@ -1679,7 +1486,12 @@ class WorkflowRunner(QObject):
         # need would be sugar without a consumer.
         key = (activity_id, instance_id)
         self._durations_by_key[key] = duration_s
-        self._status_messages_by_key[key] = last_status
+        # Tooltip text: the short status, plus the exception summary
+        # on a second line when there is one. The bar and the session
+        # log only ever see ``last_status``.
+        self._status_messages_by_key[key] = (
+            f"{last_status}\n{detail}" if detail else last_status
+        )
         if result_str == ActivityResult.EXCEPTION.value:
             # Stashed so _on_finished can re-emit the failure text as
             # the final status-bar message — after_run breadcrumbs
@@ -1744,51 +1556,43 @@ class WorkflowRunner(QObject):
         # short bar, and the duration is still in the log / session
         # record.
         warning = self._after_run_warning
+        duration = _format_duration(total_duration_s)
         if all_complete:
             if warning:
-                self.statusUpdated.emit(f"Workflow complete — {warning}")
+                final = f"Workflow complete — {warning}"
             else:
-                self.statusUpdated.emit(
-                    f"Workflow complete. Total duration: "
-                    f"{_format_duration(total_duration_s)}"
-                )
+                final = f"Workflow complete — {duration}"
         elif not ended_by_exception:
             if self._abort_status:
                 # Mid-run abort (validation failure / pre-start-check
                 # refusal). Preserve the abort reason as the final
-                # text — "Workflow stopped." would mislabel it as a
+                # text — "Workflow stopped" would mislabel it as a
                 # user action, and the transient reason emitted at
                 # abort time may have been overwritten since.
                 final = self._abort_status
                 if warning:
                     final = f"{final} — {warning}"
-                self.statusUpdated.emit(final)
             # User-requested stop (or a stop-result activity). Replace
             # the transient "Stop requested..." that ``stop()`` emitted
             # with a final state message — otherwise the StatusBar is
             # stuck showing the in-flight request indefinitely.
             elif warning:
-                self.statusUpdated.emit(f"Workflow stopped — {warning}")
+                final = f"Workflow stopped — {warning}"
             else:
-                self.statusUpdated.emit(
-                    f"Workflow stopped. Total duration: "
-                    f"{_format_duration(total_duration_s)}"
-                )
+                final = f"Workflow stopped — {duration}"
         else:
             # Exception path. Re-emit the failed activity's message —
-            # "Sputter coat: setting ion species failed — ..." is more
-            # informative than a generic failure line, and after_run
-            # breadcrumbs ("Restoring PFIB...") may have overwritten
-            # it in the bar since — appending the post-run warning if
-            # there is one.
-            final = self._last_exception_status
-            if final and warning:
-                final = f"{final} — {warning}"
-            elif warning:
-                final = warning
-            if final:
-                self.statusUpdated.emit(final)
-            # else: nothing to say beyond what's already in the bar.
+            # after_run breadcrumbs ("Restoring PFIB...") may have
+            # overwritten it in the bar since. With a post-run warning
+            # as well, a short generic head keeps the line readable;
+            # the activity's own text is still in its tooltip.
+            if warning:
+                final = f"Workflow failed — {warning}"
+            else:
+                final = self._last_exception_status
+        if final:
+            self.statusUpdated.emit(shorten(final))
+        # else: nothing to say beyond what's already in the bar.
 
         self.workflowFinished.emit(all_complete)
 

@@ -12,14 +12,6 @@ workflow runner's stage-position recorder (see
 :class:`hydra_nsr_cu.microscope.recorders.stage_position.StageRecorder`)
 — not by this activity.
 
-This activity previously performed a local "return to the pre-home
-position" move when the setting was on. That conflated homing with
-session-level restore and returned the stage to an arbitrary
-intermediate position (wherever the preceding activity left it, since
-Home Stage runs last), not the position the user started from. It was
-removed when the workflow-level restore was implemented; the setting
-now drives only the workflow runner's recorder.
-
 Stop semantics
 --------------
 The home() call cannot be interrupted mid-flight — once started, the
@@ -31,11 +23,10 @@ stop event:
     * **after** ``home()`` returns (so a stop click during the home
       is reported as a STOP result once home completes).
 
-Reporting STOP on the post-home check matters for the new restore
-policy: a STOP result propagates to the workflow runner as a
-non-successful exit, which suppresses the workflow-level stage
-restore — exactly the desired behavior, since the user interrupted
-the run.
+Reporting STOP on the post-home check matters for the restore policy:
+a STOP result propagates to the workflow runner as a non-successful
+exit, which suppresses the workflow-level stage restore — the desired
+behavior, since the user interrupted the run.
 """
 from __future__ import annotations
 
@@ -58,7 +49,7 @@ logger = logging.getLogger(__name__)
 
 
 class HomeStageService(ActivityService):
-    """Save current stage position, home all axes, optionally restore."""
+    """Home all stage axes."""
 
     activity_id = "home_stage"
 
@@ -126,9 +117,7 @@ class HomeStageService(ActivityService):
     def parameter_summary(self) -> Dict[str, Any]:
         """Provenance summary — Home Stage has no parameters.
 
-        The activity's only former parameter (``move_to_original``)
-        was removed when stage restore became a workflow-level
-        concern. Homing takes no configuration, so there's nothing
-        behavioral to record; an empty summary is correct.
+        Homing takes no configuration (stage restore is a
+        workflow-level concern), so an empty summary is correct.
         """
         return {}

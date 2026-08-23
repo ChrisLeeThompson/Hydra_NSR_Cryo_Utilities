@@ -1,76 +1,37 @@
 """Qt model for the Session Log page.
 
 One row per session — a flat :class:`QAbstractListModel` where each
-row is a session, and that session's activities are exposed as a
+row is a session and that session's activities are exposed as a
 nested list via the ``activities`` role. The Session Log page
-renders one delegate per session (a card), with a ``Repeater``
-inside the delegate iterating the activities list to render each
-activity inline.
-
-This is a step-6 design refinement: the original model interleaved
-session-header rows and activity rows in a flat list, with the
-delegate switching on a ``kind`` discriminator. The flat shape
-worked but had a UX gotcha — partial scrolling could decouple
-activities from their parent session header. Nesting activities
-inside the session row fixes that by making each card a single
-visually-contained unit.
+renders one delegate (card) per session, with a ``Repeater`` inside
+the delegate rendering each activity inline. Nesting keeps each card
+a single visually-contained unit.
 
 Row shape
 ---------
-Each row is a plain dict with these keys (snake_case internally,
-mapped to camelCase QML role names via :meth:`roleNames`):
-
-* ``session_id`` — opaque short id
-* ``workflow_id`` — ``"cryo_prep"``, ``"rt_prep"``, …
-* ``started_at`` — ISO 8601 local timestamp
-* ``notes`` — user-editable string (empty by default)
-* ``ended_at`` — ISO 8601 or ``None`` for an interrupted session
-* ``all_complete`` — ``True``/``False`` outcome, or ``None`` for
-  an interrupted session (no end record on disk)
-* ``total_duration_s`` — float, or ``None`` if not yet ended
-* ``is_interrupted`` — ``True`` when no ``session_end`` entry was
-  ever written (process crash / forced exit mid-workflow)
-* ``is_running`` — ``True`` only for the session the controller's
-  ``_current_session_id`` points at right now. Pure runtime state:
-  never persisted, never produced by reconciliation. Computed by
-  the controller (``SessionLog._row_for``) at row-build time and
-  injected here via the required keyword on
-  :meth:`session_to_row`. The QML badge checks this *before*
-  ``is_interrupted`` — a live session also has ``ended_at is
-  None``, so without this flag it would falsely badge as
-  "Interrupted".
-* ``activities`` — list of activity dicts (camelCase keys; QML's
-  Repeater consumes these directly as ``modelData.<field>``)
+Each row is a plain dict (snake_case keys, mapped to camelCase QML
+role names via :meth:`roleNames`) holding the :class:`Session`
+fields plus two derived flags: ``is_interrupted`` (no
+``session_end`` was ever written) and ``is_running`` (the session
+the controller's ``_current_session_id`` points at right now).
+``is_running`` is pure runtime state — never persisted, never
+produced by reconciliation — and is supplied by the controller via
+the required keyword on :meth:`session_to_row`. The QML badge checks
+it *before* ``is_interrupted``, since a live session also has
+``ended_at is None``. Activity dicts use camelCase keys so QML reads
+``modelData.<field>`` uniformly.
 
 Mutation API
 ------------
-* :meth:`replace_all` — startup load and ``clearAll``; emits
-  ``modelReset``.
-* :meth:`append_row` — running-workflow path: a new session
-  appears here when ``workflowStarted`` fires; emits
-  ``rowsInserted`` for that index.
-* :meth:`update_row_at` — three triggers:
-  1. New activity recorded during a running workflow (the row's
-     ``activities`` list grows).
-  2. Workflow finished (the row's ``ended_at`` /
-     ``all_complete`` / ``total_duration_s`` fields populate).
-  3. User edits the notes (the row's ``notes`` field changes).
-  In all three cases the entire row dict is replaced and a
-  blanket ``dataChanged`` is emitted; QML re-evaluates bindings
-  for that row's delegate.
+:meth:`replace_all` (startup load, ``clearAll``) emits ``modelReset``;
+:meth:`append_row` (new session) emits ``rowsInserted``;
+:meth:`update_row_at` (new activity, workflow finished, note edit)
+replaces the row dict and emits ``dataChanged``. The running-workflow
+path deliberately avoids ``modelReset`` so ListView scroll position
+survives while the user is watching the page.
 
-Granular over-modelReset on the running-workflow path was a
-ratified design point — ListView scroll position survives
-``rowsInserted`` / ``dataChanged`` but not ``modelReset``, and
-during a live workflow the user is watching the page.
-
-Presentation
-------------
-Values are stored canonical (raw SI for numerics, ISO strings for
-timestamps, dicts for params, snake_case ids for workflows /
-activities). Formatting for display lives on
-:class:`SessionLog` as ``@Slot``-decorated helpers; the delegate
-is the only consumer of that presentation layer.
+Values are stored canonical (raw SI, ISO timestamps, snake_case
+ids); display formatting lives on :class:`SessionLog`.
 """
 from __future__ import annotations
 
@@ -95,12 +56,10 @@ logger = logging.getLogger(__name__)
 class SessionLogModel(QAbstractListModel):
     """One-row-per-session list model."""
 
-    # Role enum values. Starting at ``Qt.UserRole`` keeps us clear of
-    # the standard Qt roles. Ten session-level fields + the nested
-    # activities list — significantly fewer roles than the flat-
-    # interleaved version that came before, because activity fields
-    # now live inside the ``activities`` list dicts rather than as
-    # top-level row fields.
+    # Role enum values. Starting at ``Qt.UserRole`` avoids the
+    # standard Qt roles. Session-level fields plus the nested
+    # activities list; activity fields live inside the ``activities``
+    # list dicts rather than as top-level row roles.
     SessionIdRole = Qt.UserRole + 1
     WorkflowIdRole = Qt.UserRole + 2
     StartedAtRole = Qt.UserRole + 3
@@ -270,20 +229,13 @@ class SessionLogModel(QAbstractListModel):
         Running-ness is controller state (``_current_session_id``),
         not disk state — :class:`Session` cannot know it, and a
         defaulted flag would let a call site silently render a live
-        session as "Interrupted" (the exact bug this parameter
-        fixes). All production calls route through
-        ``SessionLog._row_for``, which computes the flag from the
-        single source of truth; the required keyword turns any
-        bypass into a loud ``TypeError`` instead of a quiet wrong
-        badge. Mirrors the ``restore()`` required-flag pattern in
-        the PFIB conditions recorder.
+        session as "Interrupted". All production calls route through
+        ``SessionLog._row_for``; the required keyword turns any
+        bypass into a ``TypeError`` instead of a wrong badge.
 
-        Static because the mapping itself is stateless; the
-        controller supplies the one piece of runtime state via the
-        flag. Centralizing the field-mapping here keeps the role
-        names, the row keys, and the activity dict shape aligned in
-        one place — drift between them would surface as silent UI
-        breakage.
+        Static because the mapping is stateless. Centralizing it here
+        keeps the role names, row keys, and activity dict shape
+        aligned in one place.
         """
         return {
             "session_id": session.session_id,

@@ -1,62 +1,28 @@
 """RT Prep workflow runner.
 
-Holds the parameters and per-activity enabled-state for the RT Prep page,
-and constructs activities on demand as the workflow runner asks for the
-next pending activity.
+Holds the parameters and per-activity enabled-state for the RT Prep
+page, and constructs activities on demand as the workflow runner asks
+for the next pending activity. Exposes two activities in a fixed
+order: GIS Purge, then Home Stage. Mid-run switch toggles take effect
+at the next fetch; the page has no mechanism for adding activities.
 
-Currently exposes two activities: GIS Purge and Home Stage.
+Validation is lighter than :class:`CPWorkflow`'s. Parameter values
+are clamped at write time by the Property setters and the activity
+list is static, so the only start-time pass is the pre-start checks
+declared by the enabled activity classes (REFUSE / ASK_CONFIRM via
+the runner's two-step Start). The same checks are re-evaluated per
+activity at fetch time, honoring confirmations the user already
+accepted at Start (:attr:`WorkflowRunner._confirmed_check_types`).
+GIS Purge declares no checks — it doesn't move the stage and has no
+Z-link dependency.
 
-Iterative-fetch architecture
-----------------------------
-RT walks a static two-element ordered list (GIS Purge, then Home Stage)
-in :meth:`_next_pending_activity`. Mid-run switch toggles fold in for
-free — a disabled activity isn't pending and isn't returned. The page
-has no mechanism for adding activities mid-run (unlike the Cryo page),
-so the static order is fixed.
-
-Validation
-----------
-Two passes, both lighter than :class:`CPWorkflow`'s:
-
-* **Pre-start check at start** — :meth:`_validate_pre_start` gathers
-  the checks declared by each enabled activity class and runs them
-  through the orchestrator. A REFUSE outcome (none possible today
-  on RT — Home Stage's only check is the stage-position advisory)
-  refuses the start with :attr:`preStartCheckRefused`. An
-  ASK_CONFIRM outcome (e.g. stage in an unusual position when Home
-  Stage is enabled) pauses the start pending user confirmation via
-  the runner's two-step Start state machine. GIS Purge contributes
-  no checks per the pre-start check design (RT-page GIS purge
-  doesn't move the stage and has no Z-link dependency).
-
-  RT has no separate parameter-validation pass — parameter values
-  are clamped at write time by the Property setters and the
-  activity list is static, so there's nothing to validate beyond
-  the pre-start checks.
-
-* **Mid-run (planned)** — TODO step 9: per-activity pre-start
-  check re-evaluation at fetch time, consulting
-  :attr:`WorkflowRunner._confirmed_check_types` to avoid reprompting
-  for confirmations the user already accepted at Start.
-
-Persistence
------------
-Parameter values (durations, recovery times) persist across sessions via
-:class:`QSettings`, mirroring the pattern used by
-:class:`SettingsController`. Keys are namespaced under ``v3/rtWorkflow/``
-so they don't collide with app-level settings.
-
-Activity-enabled flags (the container switches) are intentionally *not*
-persisted — the user opts in fresh each session, matching v2.1's
-behavior. Auto-running hardware activities at startup is the kind of
-surprise we want to avoid.
-
-Future Templates feature
-------------------------
-Workflow templates will serialize the same parameter values via a
-different code path (a JSON file the user names) — the parameters are
-the source of truth, regardless of whether they're loaded from
-QSettings, a template file, or default values.
+Parameter values (durations, recovery times) persist across sessions
+via :class:`QSettings` under ``v3/rtWorkflow/``. Activity-enabled
+flags are intentionally *not* persisted — the user opts in fresh each
+session so hardware activities never auto-run at startup. Workflow
+templates serialize the same parameter values through a separate
+JSON path; the parameters are the source of truth regardless of where
+they were loaded from.
 """
 from __future__ import annotations
 
@@ -216,27 +182,18 @@ class RTWorkflow(WorkflowRunner):
     def _validate_pre_start(self) -> PreStartValidationResult:
         """Pre-start check pass.
 
-        Single-stage pipeline (compared to CPWorkflow's three): RT
-        has no parameter-validation pass — values are clamped by the
-        Property setters and the activity list is static. The only
-        start-time validation is the pre-start check pass.
-
-        Gather checks from enabled activity classes and route the
-        outcome:
+        RT has no parameter-validation stage (values are clamped by
+        the Property setters and the activity list is static), so this
+        gathers the checks from the enabled activity classes and routes
+        the outcome:
 
         * REFUSE → emit :attr:`preStartCheckRefused`, status
-          breadcrumb ``"Pre-start check failed"``, return
-          ``"refused"``.
+          breadcrumb ``"Pre-start check failed"``, return ``"refused"``.
         * ASK_CONFIRM → emit :attr:`preStartCheckNeedsConfirmation`,
-          return ``"needs_confirmation"`` with the set of check
-          types (carried forward into
-          :attr:`WorkflowRunner._confirmed_check_types` on accept).
+          return ``"needs_confirmation"`` with the pending check types.
         * PASS / no checks gathered → return ``"ok"``.
 
-        State capture (workflow settings snapshot) moves to
-        :meth:`_on_commit_to_run`, which fires only when the runner
-        has committed to actually starting the run — either an
-        outright OK or an accepted confirmation.
+        State capture happens in :meth:`_on_commit_to_run`, not here.
         """
         checks = self._gather_pre_start_checks()
         if checks:
@@ -289,10 +246,9 @@ class RTWorkflow(WorkflowRunner):
         """Walk enabled activities, collect their pre-start checks.
 
         RT has two activities; today only Home Stage contributes a
-        check (GIS Purge has none per the pre-start check design).
-        The orchestrator deduplicates by type, so this is robust to
-        future additions where multiple activities request the same
-        check.
+        check (GIS Purge declares none). The orchestrator deduplicates
+        by type, so multiple activities requesting the same check
+        produce one evaluation.
 
         Mirrors :meth:`CPWorkflow._gather_pre_start_checks` in shape
         — separate implementation because RT walks fixed flags
@@ -306,27 +262,16 @@ class RTWorkflow(WorkflowRunner):
         return checks
 
     def _on_commit_to_run(self) -> None:
-        """Capture the workflow-settings snapshot.
+        """Capture the workflow-settings snapshot and set up the stage recorder.
 
-        Fires on every path that commits to a run — either an
-        outright ``"ok"`` from :meth:`_validate_pre_start` or an
-        accepted confirmation via
-        :meth:`WorkflowRunner.respondToConfirmation`. Never fires
-        on refused or cancelled paths, so the captured snapshot
-        always binds to a run that's about to start.
-
-        See
-        :mod:`hydra_nsr_cu.workflows.settings_snapshot.WorkflowSettingsSnapshot`
-        for why capture moved here from ``_validate_pre_start``:
-        with the two-step Start, ``_validate_pre_start`` may pause
-        for an arbitrary amount of time on the confirm dialog, and
-        capturing settings there would either lock the user out of
-        editing settings during the wait, or capture stale state by
-        the time they accept.
-
-        RT has no recorder to set up — only the settings snapshot.
-        CPWorkflow's override does both; the symmetry is intentional
-        for consumers reading either side of the codebase.
+        Fires on every path that commits to a run — an outright
+        ``"ok"`` from :meth:`_validate_pre_start` or an accepted
+        confirmation via :meth:`WorkflowRunner.respondToConfirmation`
+        — and never on refused or cancelled paths. Capturing here
+        rather than in ``_validate_pre_start`` means the snapshot
+        reflects the settings as of the moment the run actually
+        commits, however long the confirm dialog stayed open. See
+        :class:`WorkflowSettingsSnapshot`.
         """
         self._settings_snapshot = WorkflowSettingsSnapshot.from_settings(
             self._settings
@@ -385,7 +330,7 @@ class RTWorkflow(WorkflowRunner):
             )
             if not self._after_run_warning:
                 self._after_run_warning = (
-                    "Cleanup abandoned — stage position not restored"
+                    "Cleanup abandoned — stage not restored"
                 )
         elif completed:
             if (self._stage_recorder is not None
@@ -415,36 +360,17 @@ class RTWorkflow(WorkflowRunner):
     ) -> FetchOutcome:
         """Return the next enabled activity not yet executed in this run.
 
-        RT exposes two single-instance activities — GIS Purge first,
-        then Home Stage. Both have ``instance_id == ""``, so their
-        keys are ``"gis_purge/"`` and ``"home_stage/"``.
+        RT exposes two single-instance activities in fixed order — GIS
+        Purge (key ``"gis_purge/"``), then Home Stage (key
+        ``"home_stage/"``). An activity toggled off after Start is
+        simply not returned at the next fetch.
 
-        Mid-run toggles fold in here for free: if the user toggles
-        an activity off after Start, it's no longer "enabled" at the
-        next fetch and we skip past it. The QML binding locks switches
-        on activities that have already started, so this only happens
-        for activities still in idle state.
-
-        Mid-run additions don't apply to RT — there's no UI for adding
-        activities to the page. The static order is fixed.
-
-        Each candidate goes through a mid-run pre-start check pass
-        (:meth:`_mid_run_pre_start_check_passes`) before being built.
-        REFUSE outcomes — and ASK_CONFIRM outcomes whose check type
-        was not pre-confirmed at workflow Start — abort the workflow.
-        GIS Purge has no checks declared today, so its helper call
-        short-circuits to True; the call is included for consistency
-        and to leave room for future GIS-Purge-specific checks
-        without changing the call structure.
-
-        If GIS Purge can't be built (e.g. empty port name in settings),
-        we mark its key as executed and fall through to Home Stage.
-        That matches v2.1 / pre-refactor behavior — Home Stage
-        shouldn't be punished for a misconfigured GIS port. Note the
-        asymmetry vs. pre-start check failure: build-time misconfig
-        is "skip and continue" (per-activity), pre-start check
-        failure is "abort workflow" (whole-run). They're different
-        kinds of failure.
+        Each candidate goes through :meth:`_mid_run_pre_start_check_passes`
+        before being built; a failure aborts the workflow. If GIS Purge
+        can't be built (empty port name in settings), its key is marked
+        executed and the fetch falls through to Home Stage — a
+        build-time misconfiguration skips that activity, whereas a
+        pre-start check failure aborts the whole run.
         """
         gis_purge_key = f"{GISPurgeService.activity_id}/"
         home_stage_key = f"{HomeStageService.activity_id}/"
@@ -502,10 +428,9 @@ class RTWorkflow(WorkflowRunner):
     def _build_home_stage(self) -> ActivityService:
         """Construct a HomeStageService.
 
-        Home Stage takes no parameters — the former ``move_to_original``
-        arg was removed when stage restore became a workflow-level
-        concern (handled by this runner's :class:`StageRecorder`, gated
-        on a successful run).
+        Home Stage takes no parameters; returning the stage to its
+        original position is handled by this runner's
+        :class:`StageRecorder`, gated on a successful run.
         """
         return HomeStageService(
             stage=self._microscope.stage,

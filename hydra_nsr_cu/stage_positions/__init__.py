@@ -3,7 +3,7 @@
 The :class:`StagePositionsController` and its underlying
 :class:`StagePositionsModel` manage the list of named stage positions
 that persists across sessions. Activities that need to target specific
-stage positions (currently planned: GIS Deposition in Session 5)
+stage positions (GIS Deposition, for example)
 reference saved positions by stable id rather than by index, so the
 reference survives any reordering.
 

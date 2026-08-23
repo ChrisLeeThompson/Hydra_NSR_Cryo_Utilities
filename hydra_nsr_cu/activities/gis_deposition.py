@@ -1,75 +1,32 @@
 """GIS Deposition activity service.
 
 Hardware-side implementation of the GIS Deposition activity used in
-Cryo Prep workflows. Moves the stage to a saved position, inserts
-the GIS needle, opens the valve for a configured duration, then
-retracts and (optionally) waits for chamber recovery.
-
-Sequence
---------
+Cryo Prep workflows. Sequence:
 
 1. Resolve the GIS port (looked up by name from settings).
-2. (Optional) Tilt the stage to zero degrees first, if
-   ``zero_tilt_first`` is set, so the move below happens from a flat
-   orientation. See "Zero tilt before the move" below.
-3. Move stage to deposition position.
-4. Insert GIS needle.
-5. Open valve.
+2. Optionally tilt the stage to zero degrees (``zero_tilt_first``) so
+   the XY/Z translation happens from a flat orientation. Only the T
+   axis is commanded; the subsequent move re-tilts to the position's
+   own tilt.
+3. Move the stage to the deposition position.
+4. Insert the GIS needle.
+5. Open the valve.
 6. Per-second interruptible deposition loop.
-7. Close valve. Always — including on stop.
-8. Retract GIS. Always — including on stop and exception.
+7. Close the valve — always, including on stop.
+8. Retract the needle — always, including on stop and exception.
 9. Per-second interruptible chamber recovery.
 
-Zero tilt before the move
--------------------------
-
-If ``zero_tilt_first`` is set (from the "Zero Tilt Before GIS
-Deposition" setting), the activity tilts the stage to zero degrees
-before moving to the deposition position, so the XY/Z translation
-happens from a flat orientation — a safety measure for positions that
-are awkward to approach from a steep tilt. Only the tilt (T) axis is
-commanded; X/Y/Z/R are left untouched via ``make_position``'s per-axis
-"don't move" semantic. The subsequent move to the full deposition
-position re-tilts to that position's tilt. The tilt move is a normal
-uninterruptible AutoScript stage move, bracketed by stop checks like
-the position move.
-
-Cancellation and cleanup
-------------------------
-
-The valve and needle have hard cleanup guarantees: once the valve is
-opened, it gets closed before the activity returns; once the needle
-is inserted, it gets retracted before the activity returns. These
-guarantees hold across stop and exception paths.
-
-Implementation: nested try/finally. The outer try owns the needle
-(insert/retract); the inner try owns the valve (open/close). If a
-stop arrives mid-deposition, the loop returns STOP, the inner
-finally closes the valve, then the outer finally retracts the needle.
-If an exception is raised at any point after insert, the same
-unwinding closes valve and retracts needle.
-
-Stop checks happen at every safe point: before and after the optional
-zero-tilt move, before the position move, before the insert, before
-the valve open, between deposition seconds, and between recovery
-seconds. The retract itself is not guarded by a stop check — once
-we've inserted, we always retract.
-
-Position resolution
--------------------
+The valve and needle cleanup guarantees are implemented with nested
+try/finally: the outer block owns the needle (insert/retract), the
+inner block owns the valve (open/close). Stop checks happen at every
+safe point (around the stage moves, before insert, before valve open,
+and between seconds of the timed loops); the retract itself is never
+skipped.
 
 The activity receives target coordinates already resolved to a
-:class:`StagePosition` object, plus the position name for status
-messages. The workflow runner does the position-id → coordinates
-resolution at workflow Start, which lets the runner detect "this
-activity references a deleted position" before starting any work.
-
-PFIB conditions
----------------
-
-GIS Deposition does not modify ion beam state, so no recorder is
-needed. Compare to Sputter Coat, which mutates plasma gas / HV /
-beam current and needs the recorder to undo those changes.
+:class:`StagePosition`, plus the position name for status messages;
+the workflow runner resolves the position id before the run starts.
+GIS Deposition does not modify ion beam state.
 """
 from __future__ import annotations
 

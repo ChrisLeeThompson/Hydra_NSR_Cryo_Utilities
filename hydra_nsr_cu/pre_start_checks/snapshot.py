@@ -13,7 +13,7 @@ New checks may need new hardware fields. Add them to
 :class:`HardwareSnapshot` and to :func:`gather_snapshot`. The
 dataclass is the explicit registry of "what hardware state
 pre-start checks can see" — keeping it as a dataclass rather
-than a free-form dict lets us audit the surface in one place.
+than a free-form dict keeps that surface auditable in one place.
 """
 from __future__ import annotations
 

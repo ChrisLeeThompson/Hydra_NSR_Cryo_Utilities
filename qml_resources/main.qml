@@ -327,15 +327,15 @@ ApplicationWindow {
                     const count = appController.cryoActivities.model.count
                     const word = count === 1 ? "activity" : "activities"
                     mainStatusBar.showMessage(
-                        "Template '" + templateName + "' loaded — " +
-                        count + " " + word + ".",
+                        "Loaded '" + templateName + "' — " +
+                        count + " " + word,
                         5000
                     )
                 }
 
                 function onTemplateSaveSucceeded(templateName) {
                     mainStatusBar.showMessage(
-                        "Template '" + templateName + "' saved.",
+                        "Saved '" + templateName + "'",
                         5000
                     )
                 }

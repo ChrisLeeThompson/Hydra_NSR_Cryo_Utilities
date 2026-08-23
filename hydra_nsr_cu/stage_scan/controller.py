@@ -4,114 +4,29 @@ Manual-assist controller backing the Stage / Scan page. The page hosts
 three direct user-gesture operations:
 
 * **Stage rotation** (and its tilt-before / tilt-after variants).
-  Multi-phase, threaded, claims the cross-page lock. Implemented at
-  B5. Gated by a pre-start check pass — see "Pre-start checks for
-  rotation" below.
-* **Scan rotate SEM and FIB** to a chosen canonical angle (0 or π
-  rad). Synchronous, no thread, doesn't claim the lock — two
-  AutoScript property writes done before the next QML frame paints.
-  Two explicit Slots, ``set_scan_rotation_to_0`` and
-  ``set_scan_rotation_to_180``, let the user normalize the beams to
-  a known canonical pair regardless of starting state. The rotation
-  worker's optional "scan rotate after" chained phase uses a
-  separate additive-delta helper (:meth:`_rotate_scan_by_180`)
-  rather than these absolute setters — see "Chained scan rotate
-  after rotation" below for the contract distinction.
-* **Stage Z slider.** Continuous streaming relative-moves while the
-  user holds the slider. Implemented at B6.
+  Multi-phase, threaded, claims the cross-page lock, and gated by a
+  pre-start check pass (REFUSE / ASK_CONFIRM / PASS) before a worker
+  is spawned — the same two-step Start pattern as the workflow runners.
+* **Scan rotate SEM and FIB** to a canonical angle (0 or π rad) via
+  :meth:`set_scan_rotation_to_0` / :meth:`set_scan_rotation_to_180`.
+  Synchronous, no thread, no lock. The rotation worker's optional
+  "scan rotate after" phase instead uses :meth:`_rotate_scan_by_180`,
+  which adds π to each beam's current scan rotation (wrapped into
+  [0, 2π)) to compensate for the 180° physical rotation.
+* **Stage Z slider.** Streaming relative moves while the slider is
+  held, driven by a long-lived worker on a 50 ms tick. Not gated by
+  pre-start checks; a separate safety gate (:mod:`.z_safety_gate`)
+  disables the slider while the stage is outside the safe range.
 
-Layering
---------
-The controller consumes hardware ops (``microscope.electron_beam``,
-``microscope.ion_beam``, ``microscope.stage``) and exposes operations
-to QML as ``@Slot`` methods. It does NOT reach into the underlying
-``SdbMicroscopeClient`` directly — all SDK contact goes through the
-ops facades in :mod:`hydra_nsr_cu.microscope`.
-
-Stage rotation: planner / worker / controller split
----------------------------------------------------
-The rotation operation is decomposed into three layers:
-
-* :func:`_plan_rotation_phases` — pure function that takes the four
-  user settings and returns an ordered ``list[_RotatePhase]``.
-  Testable in isolation; no Qt, no microscope, no I/O.
-* :class:`_StageRotateWorker` — Qt worker that lives on a dedicated
-  :class:`QThread` for the duration of one rotation. Iterates the
-  plan, executing each phase via the microscope ops, with a
-  ``threading.Event`` checked between phases so a stop request takes
-  effect at the next phase boundary. Emits ``phaseStarted`` before
-  each phase begins so the controller can drive per-phase status
-  text on the GUI thread.
-* :class:`StageScanController` — owns the worker lifecycle, surfaces
-  the operation to QML via :meth:`start_rotation` / :meth:`stop`, and
-  exposes ``isRotating`` plus paired ``rotationStarted`` /
-  ``rotationFinished`` signals for consumer flexibility.
-
-Z slider: long-lived worker
----------------------------
-Unlike the rotation worker (one thread per gesture), the Z worker is
-long-lived — constructed and started in :meth:`StageScanController.__init__`,
-torn down in :meth:`StageScanController.shutdown`. It sleeps on a
-50 ms tick and only issues a hardware move when the slider value is
-non-zero. Errors fail-lock the worker until the slider returns to
-zero (the user releases it), then resume; this is simpler and safer
-than a retry/backoff scheme — the user is always in the loop.
-
-Chained "scan rotate after rotation" contract
----------------------------------------------
-The rotation worker's optional :data:`PHASE_SCAN_ROTATE_AFTER` phase
-runs when ``scanRotateAfterRotation`` is checked. It calls
-:meth:`_rotate_scan_by_180`, which adds π radians to whatever the
-current scan rotation is on each beam — *not* an absolute set to 0
-or π — and wraps the sum into [0, 2π) before writing, because
-AutoScript's ``scanning.rotation`` rejects values outside that
-range.
-
-The additive-delta contract is the right one because the chained
-phase's job is to compensate for the 180° physical rotation that
-just happened, not to normalize to a canonical state. After a 180°
-stage rotation, the imaging frame is upside-down; adding 180° to
-the scan rotation flips it back, regardless of what the scan
-rotation value was beforehand. If the user had a non-canonical
-starting value (e.g. 30°), the chain produces 30° + 180° = 210° —
-still mathematically correct as a compensating flip, even if the
-read-back value is unusual. The wrap changes nothing semantically
-(rotation is periodic in 2π); it only keeps the written value in
-AutoScript's accepted domain — from the common π starting point the
-chain lands back at 0 rather than attempting 2π, which the hardware
-would reject.
-
-The two explicit setter Slots (:meth:`set_scan_rotation_to_0` and
-:meth:`set_scan_rotation_to_180`) are the user's escape hatch for
-normalizing back to canonical values whenever the read-back drifts.
-
-Pre-start checks for rotation
------------------------------
-Stage rotation goes through the two-step Start pattern shared with
-the workflow runners. Before a worker is spawned,
-:meth:`start_rotation` gathers the rotation's pre-start checks
-(today: a single :class:`StagePositionWithinSafeRangeCheck`), runs
-them through the orchestrator, and routes the outcome:
-
-* REFUSE → emit :attr:`preStartCheckRefused` with the
-  check-result items, status breadcrumb ``"Pre-start check
-  failed"``, no worker spawned.
-* ASK_CONFIRM → emit :attr:`preStartCheckNeedsConfirmation`,
-  stash a :class:`PendingStart`, wait for QML to call
-  :meth:`respondToConfirmation`. Accept →
-  :meth:`_spawn_rotation_worker`; reject → "Stage rotation
-  cancelled" breadcrumb.
-* PASS → :meth:`_spawn_rotation_worker` immediately.
-
-Z slider gestures are intentionally NOT gated by pre-start checks
-today — streaming relative-move semantics don't map cleanly to a
-gate-and-resume flow. Deferred for a future iteration.
-
-State recording
----------------
-None. This controller backs a manual-assist page; operations are
-direct user gestures with no side-effect bracketing. See the Q16
-discussion in the design notes for the rationale.
+All SDK contact goes through the ops facades in
+:mod:`hydra_nsr_cu.microscope`; the controller never reaches into the
+underlying ``SdbMicroscopeClient``. Stage rotation is split into a pure
+planner (:func:`_plan_rotation_phases`), a single-shot threaded worker
+(:class:`_StageRotateWorker`), and this controller, which owns the
+worker lifecycle and exposes ``isRotating`` plus the paired
+``rotationStarted`` / ``rotationFinished`` signals to QML. There is no
+state recording: operations are direct user gestures with no
+side-effect bracketing.
 """
 from __future__ import annotations
 
@@ -213,7 +128,7 @@ def _plan_rotation_phases(
 ) -> list[_RotatePhase]:
     """Build an ordered list of rotation phases from the user's settings.
 
-    Pure function. The order matters and matches v2.1's behaviour:
+    Pure function. The order matters:
 
     1. (optional) Zero the stage tilt — needed to clear specimen-stage
        interferences before rotating.
@@ -247,45 +162,22 @@ def _plan_rotation_phases(
 class _StageRotateWorker(QObject):
     """Worker that executes a rotation plan on a dedicated thread.
 
-    Lifecycle
-    ---------
-    Lives on a :class:`QThread` for the duration of one rotation,
-    then is destroyed via ``deleteLater`` once :attr:`finished` has
-    been emitted. Single-shot — do not reuse.
+    Single-shot: lives on a :class:`QThread` for one rotation, then is
+    destroyed via ``deleteLater`` once :attr:`finished` has been emitted.
 
-    Stop semantics
-    --------------
-    Stage moves are synchronous and uninterruptible from another
-    thread (cross-thread ``stop()`` calls would queue behind the
-    in-flight move on AutoScript's input queue). The worker therefore
-    checks ``stop_event`` *between* phases — a stop request takes
-    effect at the next phase boundary, not mid-phase.
+    Stage moves are synchronous and can't be interrupted from another
+    thread, so ``stop()`` takes effect at the next phase boundary, not
+    mid-phase.
 
-    Phase-started signal
-    --------------------
-    ``phaseStarted(kind: str, tilt_rad: float)`` is emitted just
-    before each phase begins executing (after the per-phase cancel
-    check passes). The payload is intentionally structured rather
-    than pre-formatted so that user-facing strings stay co-located
-    with the rest of the controller's ``statusUpdated`` emits — the
-    worker has no UI vocabulary. The connection in
-    :meth:`StageScanController._spawn_rotation_worker` is queued
-    (auto), so the controller's slot runs on the GUI thread.
+    ``phaseStarted(kind: str, tilt_rad: float)`` is emitted just before
+    each phase begins (after the cancel check). The payload is
+    structured rather than pre-formatted so user-facing strings stay in
+    the controller; the queued connection delivers it on the GUI thread.
 
-    Finished signal
-    ---------------
-    ``finished(success: bool, reason: str)``:
-
-    * ``success=True, reason=""`` — all phases ran to completion.
-    * ``success=False, reason="cancelled"`` — stop_event was set
-      before some phase started.
-    * ``success=False, reason=<message>`` — a phase raised an
-      exception. The message names the failing phase. The
-      controller's :meth:`StageScanController._on_rotate_finished`
-      does *not* parse this payload; it uses its remembered friendly
-      phase text instead ("short status bar, console for the why").
-      The ``reason`` remains in the signal's contract for log/debug
-      consumers.
+    ``finished(success: bool, reason: str)`` is ``(True, "")`` on
+    completion, ``(False, "cancelled")`` on stop, or ``(False, "<phase>
+    failed: <ex>")`` when a phase raises. The controller does not parse
+    ``reason``; it exists for log/debug consumers.
     """
 
     phaseStarted = Signal(str, float)
@@ -304,9 +196,8 @@ class _StageRotateWorker(QObject):
         # Callable, not the controller, so the worker doesn't reach
         # into a sibling object's private interface. The controller
         # owns the additive-delta logic; the worker just calls it.
-        # See the module docstring's "Chained scan rotate after
-        # rotation contract" section for why this is additive rather
-        # than absolute.
+        # See StageScanController._rotate_scan_by_180 for why this is
+        # additive rather than absolute.
         self._rotate_scan_by_180 = rotate_scan_by_180
         self._stop_event = threading.Event()
 
@@ -361,9 +252,9 @@ class _StageRotateWorker(QObject):
         elif phase.kind == PHASE_SCAN_ROTATE_AFTER:
             # Reuses the controller's additive-delta helper. The
             # contract is "add π to both beams, wrapped into
-            # [0, 2π)" — see the module docstring's "Chained scan
-            # rotate after rotation contract" section. Unconditional;
-            # any AutoScript exception fails the phase normally.
+            # [0, 2π)" — see StageScanController._rotate_scan_by_180.
+            # Unconditional; any AutoScript exception fails the phase
+            # normally.
             self._rotate_scan_by_180()
         else:
             raise ValueError(f"Unknown rotation phase kind: {phase.kind!r}")
@@ -402,38 +293,21 @@ class _SliderState:
 class _StageZWorker(QObject):
     """Long-lived worker that drives the Stage Z slider's streaming moves.
 
-    Lifecycle
-    ---------
     Constructed and started in :meth:`StageScanController.__init__`,
-    runs for the lifetime of the controller, torn down via
-    :meth:`StageScanController.shutdown`. Unlike the rotation worker,
-    one Z worker handles every Z-slider gesture across the app's
-    session — the per-gesture cost is amortized away.
+    runs for the controller's lifetime, torn down via
+    :meth:`StageScanController.shutdown`. One worker serves every
+    Z-slider gesture in the session.
 
-    Tick semantics
-    --------------
-    On each tick (every :data:`defaults.STAGE_Z_TICK_INTERVAL_S`
-    seconds, or as soon as ``stop_event`` is set), the worker:
+    On each tick (:data:`defaults.STAGE_Z_TICK_INTERVAL_S`) it reads the
+    slider value from :class:`_SliderState` and, when non-zero, issues a
+    relative ``z`` move of ``slider_value × STAGE_Z_STEP_SIZE_M`` with
+    ``link_z_y=True`` (xT's "Link Z to Y" behavior). Idle ticks are
+    used for the safe-range position poll.
 
-    1. Reads the slider value from :class:`_SliderState`.
-    2. If fail-locked: clears the lock if the slider is at 0, else
-       skips this tick. (The user has to release the slider before
-       another move is attempted — see :meth:`run` for rationale.)
-    3. If the slider is at 0: skips this tick (idle).
-    4. Otherwise: issues a relative ``z`` move equal to
-       ``slider_value × STAGE_Z_STEP_SIZE_M``, with ``link_z_y=True``
-       so the Y axis compensates per xT's "Link Z to Y" behavior.
-
-    Errors
-    ------
-    Any exception from ``relative_move`` puts the worker into a
-    fail-locked state: an :attr:`errorOccurred` signal is emitted
-    once, and no further moves are attempted until the user releases
-    the slider (so it returns to 0). This is intentionally simpler
-    than retry-with-backoff — the user is always in the loop, and a
-    persistent error (e.g. a stage interlock fault) shouldn't keep
-    spamming the hardware while the user is still pressing the
-    slider.
+    Any exception from ``relative_move`` fail-locks the worker: one
+    :attr:`errorOccurred` emit, then no further moves until the slider
+    returns to 0 (the user releases it). A persistent fault is therefore
+    not retried while the slider is still held.
     """
 
     # One-shot per failure. The receiver should be a queued slot on
@@ -587,15 +461,15 @@ class StageScanController(QObject):
       signals — the threaded stage rotation operation.
     * :meth:`respondToConfirmation` plus the
       ``preStartCheckRefused`` / ``preStartCheckNeedsConfirmation``
-      signals — the two-step Start for rotation. See "Pre-start
-      checks for rotation" in the module docstring.
+      signals — the two-step Start for rotation. See
+      :meth:`start_rotation`.
     * :meth:`set_z_slider` — Z slider streaming-move dispatch.
     * :meth:`shutdown` — orderly teardown of all threaded operations.
     """
 
     # StatusBar text — same shape as :class:`StagePositionsController`
-    # and the workflow runners. The QML's main.qml will route this
-    # through the multiplexed StatusBar message slot at B7.
+    # and the workflow runners. main.qml routes this through the
+    # multiplexed StatusBar message slot.
     statusUpdated = Signal(str)
 
     # Notify signal for the ``isRotating`` Property. Consumers binding
@@ -612,7 +486,7 @@ class StageScanController(QObject):
     # the message text actually changes (see ``_set_z_safety_message``).
     zSafetyMessageChanged = Signal()
 
-    # Edge signals, paired with ``isRotating`` per Q13:
+    # Edge signals, paired with ``isRotating``:
     # ``rotationStarted`` fires when a rotation begins; the controller
     # has already set ``_is_rotating = True`` before emitting.
     # ``rotationFinished(success, reason)`` fires when a rotation ends;
@@ -700,7 +574,7 @@ class StageScanController(QObject):
         # the slider disabled without showing the lock overlay, so the
         # overlay doesn't flash before the first poll lands. Driven by
         # ``_on_stage_position_read`` (fed by the Z worker's idle-tick
-        # poll, step 3b) and by ``unlockZSlider``; QML binds the lock
+        # poll) and by ``unlockZSlider``; QML binds the lock
         # overlay to ``zSafetyState``.
         self._z_safety_gate = ZSafetyGate()
 
@@ -842,10 +716,6 @@ class StageScanController(QObject):
         would otherwise produce a raw target of 2π and fail the phase
         with "specified value is out of range". Wrapping is lossless
         for a rotation: π + π → 0, 30° + 180° → 210°.
-
-        See the module docstring's "Chained scan rotate after rotation
-        contract" section for the broader rationale and read-back
-        normalization story.
         """
         sem_current = self._microscope.electron_beam.scan_rotation_rad
         fib_current = self._microscope.ion_beam.scan_rotation_rad
@@ -883,10 +753,8 @@ class StageScanController(QObject):
         slider snaps to 0 on release in QML, which is what eventually
         clears any fail-locked state — see :class:`_StageZWorker`.
 
-        Not gated by pre-start checks today — streaming relative-
-        move semantics don't map cleanly to a gate-and-resume flow.
-        See the module docstring's "Pre-start checks for rotation"
-        section for the deferral note.
+        Not gated by pre-start checks — streaming relative-move
+        semantics don't map cleanly to a gate-and-resume flow.
         """
         self._z_slider_state.set(value)
 
@@ -926,28 +794,20 @@ class StageScanController(QObject):
 
         Reads ``zeroTiltBeforeRotation``, ``scanRotateAfterRotation``,
         ``tiltAfterRotation``, and ``tiltAfterRotationAngleDeg`` from
-        :class:`SettingsController` at the moment of the click — the
-        user's most recent choices apply, even if they edited them
-        between the page load and the click.
+        :class:`SettingsController` at the moment of the click.
 
-        Tri-state dispatch
-        ------------------
         Runs the rotation pre-start check pass before spawning the
-        worker. Three outcomes:
+        worker:
 
         * REFUSE → emit :attr:`preStartCheckRefused`,
           ``statusUpdated("Pre-start check failed")``, return.
         * ASK_CONFIRM → emit :attr:`preStartCheckNeedsConfirmation`,
-          stash a :class:`PendingStart`, return. QML opens the
-          confirm dialog and calls back via
+          stash a :class:`PendingStart`, return; QML calls back via
           :meth:`respondToConfirmation`.
         * PASS → :meth:`_spawn_rotation_worker` immediately.
 
         No-op (with a warning log) if a rotation is already in flight
-        or if a previous start is still pending confirmation. QML
-        page bindings should disable the Rotate button while
-        :attr:`isRotating` is True; the guards here are defensive in
-        case a stray signal sneaks through.
+        or a previous start is still pending confirmation.
         """
         # Guard against re-entry. Three flags need to be clear before
         # we can run the check pass:
@@ -1037,21 +897,16 @@ class StageScanController(QObject):
 
         Accept path: records the confirmed check types in
         :attr:`_confirmed_check_types` (parity with the workflow
-        runners; the rotation has no mid-run re-check today but the
-        field is populated correctly for cross-surface consistency)
-        and calls :meth:`_spawn_rotation_worker`.
+        runners; the rotation has no mid-run re-check) and calls
+        :meth:`_spawn_rotation_worker`.
 
-        Reject path: emits ``"Stage rotation cancelled"`` and clears
-        the pending state. The same status text is used by
-        :meth:`_on_rotate_finished` for the
-        user-clicks-Stop-mid-rotation case — the user's mental model
-        is "I didn't get a rotation," and the path that led there
-        matters less than knowing the operation didn't run to
-        completion.
+        Reject path: emits ``"Stage rotation cancelled"`` — the same
+        text :meth:`_on_rotate_finished` uses for a mid-rotation Stop,
+        since either way the rotation didn't run to completion — and
+        clears the pending state.
 
-        Defensive no-op if no start is pending (e.g. QML fires the
-        signal twice through a race, or a stale dialog dismiss
-        arrives after a separate state change).
+        Defensive no-op if no start is pending (e.g. a stale dialog
+        dismiss arriving after a separate state change).
         """
         pending = self._pending_start
         self._pending_start = None
@@ -1163,10 +1018,9 @@ class StageScanController(QObject):
     def stop(self) -> None:
         """Request that an in-progress rotation cancel at the next phase.
 
-        Infrastructure-only at B5 — no UI button currently calls this.
-        Wired up here so the public surface is stable and a future
-        Stop button (or a programmatic test) can use it without
-        controller changes.
+        No UI button currently calls this; the Slot exists so the
+        public surface is stable and a future Stop button (or a
+        programmatic test) can use it without controller changes.
 
         Stage moves are uninterruptible mid-phase, so this returns
         immediately but the rotation continues until the current
@@ -1287,7 +1141,7 @@ class StageScanController(QObject):
     def _on_rotate_finished(self, success: bool, reason: str) -> None:
         """GUI-thread receiver for the worker's ``finished`` signal.
 
-        Order matters here (per Q13): ``_set_is_rotating(False)``
+        Order matters here: ``_set_is_rotating(False)``
         runs *before* ``rotationFinished.emit(...)``, so any consumer
         that reads ``isRotating`` from a ``rotationFinished`` slot
         sees the post-rotation state, not a stale True.
@@ -1348,7 +1202,7 @@ class StageScanController(QObject):
     def _on_stage_position_read(
         self, stage_x_m: float, stage_y_m: float
     ) -> None:
-        """GUI-thread receiver for the Z worker's safe-range poll (step 3b).
+        """GUI-thread receiver for the Z worker's safe-range poll.
 
         The worker reads ``stage.current_position`` on its idle ticks and
         emits the X / Y here via a queued connection. This feeds the

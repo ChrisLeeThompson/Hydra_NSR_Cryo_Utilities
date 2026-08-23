@@ -7,50 +7,24 @@ high-level operations to QML (``add_from_current``,
 position with model mutation. QML never reads the stage directly —
 all coordinate-producing operations go through this controller.
 
-Move To threading
------------------
-``move_to(position_id)`` runs the actual ``absolute_move()`` on a
-short-lived :class:`QThread` worker, mirroring the connect-thread
-pattern in :mod:`app_controller`. The blocking call lives entirely
-on the worker thread; the GUI thread observes the operation through
-``isMoving``, ``moveStarted``, ``moveFinished``, and ``statusUpdated``
-signals.
+``move_to(position_id)`` runs the blocking ``absolute_move()`` on a
+short-lived :class:`QThread` worker; the GUI thread observes it through
+``isMoving``, ``moveStarted``, ``moveFinished``, and ``statusUpdated``.
+A failed move is logged with a full traceback and surfaced as
+``moveFinished(success=False)``; the message itself is not exposed —
+QML opens a generic "Stage Move Error" dialog pointing to the logs.
 
-Error handling
---------------
-A failed ``absolute_move()`` is logged with a full traceback and
-surfaced to QML via ``moveFinished(success=False)``. The error
-message itself is intentionally not exposed as a property — QML's
-response is to open a generic "Stage Move Error" dialog directing
-the user to the logs. AutoScript exception messages can be cryptic
-to non-developers, and centralizing diagnostics in the log file
-matches our broader pattern.
-
-Pre-start checks for Move To
-----------------------------
-A Move To gesture is gated by the pre-start check system, mirroring
-:class:`hydra_nsr_cu.stage_scan.controller.StageScanController`'s
-gating of stage rotation. Before a move worker is spawned,
-:meth:`move_to` gathers the move's pre-start checks (today: a
-single :class:`StagePositionWithinSafeRangeCheck`), runs them
-through the orchestrator, and routes the outcome:
-
-* REFUSE → emit :attr:`preStartCheckRefused` with the
-  check-result items, status breadcrumb ``"Pre-start check
-  failed"``, no worker spawned.
-* ASK_CONFIRM → emit :attr:`preStartCheckNeedsConfirmation`,
-  stash a :class:`_PendingMove`, wait for QML to call
-  :meth:`respondToConfirmation`. Accept →
-  :meth:`_spawn_move_worker`; reject → "Stage move cancelled"
-  breadcrumb.
-* PASS → :meth:`_spawn_move_worker` immediately.
-
-The intent dialog ("Move the stage to X?") in QML is left in
-place. On the override path the user sees two dialogs in
-sequence: the intent confirm, then the safety acknowledgement.
-The two protect against different failure modes (accidental
-click vs. unusual current position) and are gated separately
-on purpose.
+A Move To is gated by the pre-start check system (today a single
+:class:`StagePositionWithinSafeRangeCheck`), mirroring stage rotation
+in :class:`hydra_nsr_cu.stage_scan.controller.StageScanController`:
+REFUSE emits :attr:`preStartCheckRefused`; ASK_CONFIRM emits
+:attr:`preStartCheckNeedsConfirmation` and stashes a
+:class:`_PendingMove` until :meth:`respondToConfirmation`; PASS spawns
+the worker directly. The QML intent dialog ("Move the stage to X?")
+stays in place, so on the override path the user sees the intent
+confirm and then the safety acknowledgement — two dialogs guarding
+different failure modes (accidental click vs. unusual current
+position).
 """
 from __future__ import annotations
 
@@ -95,46 +69,24 @@ class _PendingMove:
     """Resume state for a Move To paused at the ASK_CONFIRM gate.
 
     Populated by :meth:`StagePositionsController.move_to` when the
-    pre-start check pass produces ASK_CONFIRM; consumed (and
-    cleared) on either branch of
-    :meth:`StagePositionsController.respondToConfirmation`.
-
-    Parallels :class:`hydra_nsr_cu.pre_start_checks.PendingStart`
-    in role (the carrier of the "pending confirmation" state),
-    but adds the resolved move target so the accept path can
-    spawn the worker without re-walking the positions model.
-    The shared :class:`PendingStart` carries only the check
-    types, which is enough for a parameterless gesture
-    (rotation) but not for a parameterized one (move).
-
-    Pre-resolving the target also keeps the spawn path symmetric
-    with the all-pass spawn path — both call
-    :meth:`_spawn_move_worker` with an already-resolved
-    StagePosition rather than the model index. The
-    ConfirmDialog is modal so the model can't shift while the
-    user is responding, but pre-resolving is cheaper than
-    re-resolving and is unambiguous about what gets moved to.
-
-    Frozen so the resume path can't accidentally mutate the
-    captured state mid-flight.
+    pre-start check pass produces ASK_CONFIRM; consumed (and cleared)
+    on either branch of
+    :meth:`StagePositionsController.respondToConfirmation`. Like
+    :class:`hydra_nsr_cu.pre_start_checks.PendingStart` but also
+    carries the already-resolved move target, so the accept path calls
+    :meth:`_spawn_move_worker` without re-walking the positions model.
+    Frozen so the resume path can't mutate the captured state.
 
     Attributes:
-        target: The resolved AutoScript ``StagePosition`` (real
-            or simulated) for the absolute_move call. Typed as
-            ``object`` because the real and simulated facades
-            return distinct concrete types and we don't import
-            either here.
-        position_name: User-visible name, used for the
-            ``"Moving stage to: X..."`` and ``"Stage moved to:
-            X"`` status messages.
-        position_id: Opaque id of the saved row, used only in
-            log messages.
-        confirmed_check_types: Set of check types the user is
-            being asked to confirm. On accept, carried into
-            :attr:`StagePositionsController._confirmed_check_types`
-            for cross-surface parity with other consumers (the
-            move has no mid-run re-check today, so this field
-            is populated but not consulted).
+        target: The resolved ``StagePosition`` (real or simulated) for
+            the ``absolute_move`` call. Typed as ``object`` because the
+            two facades return distinct concrete types.
+        position_name: User-visible name, used in status messages.
+        position_id: Opaque id of the saved row, used only in logs.
+        confirmed_check_types: Check types the user is being asked to
+            confirm; carried into
+            :attr:`StagePositionsController._confirmed_check_types` on
+            accept (populated for parity, not consulted mid-run).
     """
     target: object
     position_name: str

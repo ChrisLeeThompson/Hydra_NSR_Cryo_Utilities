@@ -6,51 +6,26 @@ intention-revealing surface. Two implementations live side by side:
 * :class:`StageOps` — real, backed by ``SdbMicroscopeClient.specimen.stage``.
 * :class:`SimulatedStageOps` — in-memory simulation for offline UI development.
 
-Position factory
-----------------
-``make_position(x, y, z, r, t)`` returns a position object suitable
-for passing back to ``absolute_move`` or ``relative_move``. The real
-implementation returns ``autoscript_sdb_microscope_client.structures.StagePosition``;
-the simulated returns :class:`SimulatedStagePosition`. Activities and
-the stage positions controller use this factory to construct positions
-from saved coordinates without importing the AutoScript type directly.
+``make_position(x, y, z, r, t)`` returns a position object for
+``absolute_move`` / ``relative_move`` (AutoScript's ``StagePosition``
+or :class:`SimulatedStagePosition`), so callers never import the
+AutoScript type. All five axes default to ``None``, not ``0.0``:
+AutoScript treats an unset axis as "do not move that axis", and the
+simulation preserves that. ``make_position(t=0.0)`` therefore tilts to
+zero and leaves X/Y/Z/R alone, whereas ``0.0`` defaults would command
+every axis to zero — a chamber-collision risk on real hardware.
+Positions read back via ``current_position`` always have concrete
+floats on every axis; ``None`` appears only in commanded positions.
 
-**Per-axis "don't move" semantic.** All five axes default to ``None``
-(not ``0.0``). AutoScript's ``StagePosition`` treats unset axes as
-"do not move that axis", and the simulated path preserves the same
-behaviour. This matters: ``make_position(t=0.0)`` commands a tilt to
-zero while leaving X/Y/Z/R unchanged, whereas the broken alternative
-(``0.0`` defaults on every axis) would silently command every axis
-to zero — a chamber-collision risk on real hardware.
-
-Position objects have structurally consistent ``.x / .y / .z / .r / .t``
-attributes across both implementations, but the two are not nominally
-related. Activity code typically just shuttles position objects from
-one call to another and shouldn't need to inspect them. State read
-back via ``current_position`` always has concrete float values on
-every axis; ``None`` only appears in *commanded* positions.
-
-Z-link state
-------------
-Both implementations expose an ``is_linked`` read-only property
-mirroring ``microscope.specimen.stage.is_linked`` in the SDK. The
-real :class:`StageOps` does NOT expose ``link()`` / ``unlink()``
-methods — the codebase never programmatically links real hardware
-(linking is a deliberate user action in xT). The simulated class
-DOES expose ``link()`` / ``unlink()`` as a testing escape hatch for
-exercising the REFUSE branch of
-:class:`hydra_nsr_cu.pre_start_checks.checks.ZLinkedToFreeWorkingDistanceCheck`.
-
-Position testing escape hatch
------------------------------
-:class:`SimulatedStageOps` also exposes ``force_position()`` (sim-only,
-no move delay) to place the stage wherever a test needs it — the
-counterpart to ``unlink()`` for exercising the ASK_CONFIRM branch of
-:class:`hydra_nsr_cu.pre_start_checks.checks.StagePositionWithinSafeRangeCheck`.
-For a no-code toggle, the ``DEV_FORCE_UNLINKED`` and
+Both implementations expose a read-only ``is_linked``. The real
+:class:`StageOps` has no ``link()`` / ``unlink()`` — linking is a
+deliberate user action in xT and is never done programmatically. The
+simulated class adds ``link()`` / ``unlink()`` and ``force_position()``
+as testing escape hatches for the REFUSE / ASK_CONFIRM branches of the
+pre-start checks; the ``DEV_FORCE_UNLINKED`` and
 ``DEV_FORCE_STAGE_OUT_OF_RANGE`` flags in :mod:`hydra_nsr_cu.defaults`
-seed these states at construction; ``home()`` honours the out-of-range
-flag, so the forced position persists across a Home.
+seed those states at construction, and ``home()`` honours the
+out-of-range flag.
 """
 from __future__ import annotations
 
@@ -97,8 +72,7 @@ class StageOps:
         Reads ``microscope.specimen.stage.is_linked`` from the
         AutoScript SDK. Linked-vs-unlinked is a deliberate user
         action in xT — there is no setter exposed here, and the
-        codebase never programmatically links the real hardware
-        (per the design decision in the pre-start check system).
+        codebase never programmatically links the real hardware.
         The check system consumes this property via
         :func:`hydra_nsr_cu.pre_start_checks.snapshot.gather_snapshot`.
         """
@@ -290,9 +264,8 @@ class SimulatedStageOps:
         Mirrors ``microscope.specimen.stage.link()`` from the
         AutoScript SDK. Not exposed on :class:`StageOps` —
         nothing in the codebase programmatically links real
-        hardware (per the design decision in the pre-start
-        check system; linking is a deliberate user action in
-        the Microscope Control application).
+        hardware (linking is a deliberate user action in the
+        Microscope Control application).
 
         Use in dev workflows to clear an unlinked state after
         exercising the REFUSE branch of

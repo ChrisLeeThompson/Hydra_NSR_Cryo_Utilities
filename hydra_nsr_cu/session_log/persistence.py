@@ -2,9 +2,9 @@
 
 Three pure functions over file paths and record dicts. No Qt, no
 model state, no awareness of the entry dataclasses — this is the
-canonical durable layer that step 4's SessionLog controller composes
-on top of. The dataclass ↔ dict conversion happens above this layer
-(see :mod:`records`).
+durable layer the SessionLog controller composes on top of. The
+dataclass ↔ dict conversion happens above this layer (see
+:mod:`records`).
 
 Crash-durability profile
 ------------------------
@@ -28,10 +28,10 @@ Crash-durability profile
   load-bearing, so a corrupt file must still produce a renderable
   (even if partial) view rather than blanking the page.
 
-Append-creates-file-if-missing is the step-2 self-heal primitive: a
+Append-creates-file-if-missing is the basic self-heal primitive: a
 caller that detects the file vanished can simply continue appending
-and the file will be re-created. A higher-level controller (step 4)
-that knows the in-memory model can compose :func:`atomic_rewrite` to
+and the file will be re-created. A higher-level controller that
+knows the in-memory model can compose :func:`atomic_rewrite` to
 self-heal *back to the full model state* on disappearance — that
 policy belongs above this layer because it needs model awareness.
 """
@@ -126,9 +126,9 @@ def append_record(path: PathLike, record: Dict[str, Any]) -> None:
     torn final line that :func:`load_all` skips on the next read.
 
     The record dict must be JSON-serializable — callers either feed
-    in dataclass ``to_dict()`` output (always clean by contract) or
-    :meth:`ActivityService.parameter_summary` output (also clean by
-    contract, verified by step 1's smoke test).
+    in dataclass ``to_dict()`` output or
+    :meth:`ActivityService.parameter_summary` output, both clean by
+    contract.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -148,8 +148,7 @@ def atomic_rewrite(path: PathLike, records: List[Dict[str, Any]]) -> None:
     is visible — never a torn file.
 
     An empty list produces an empty file, which is the legitimate
-    "clear all" semantics used by the Settings delete-log control
-    (step 7).
+    "clear all" semantics used by the Settings delete-log control.
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

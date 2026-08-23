@@ -15,8 +15,8 @@ Stop semantics:
     close the valve before re-raising.
 
 Progress reporting:
-    Mirrors the v2.1 worker pattern. Each phase emits progress for
-    seconds 0..N at the start of each second, then a final N tick after
+    Each phase emits progress for seconds 0..N-1 at the start of each
+    second, then a final N tick after
     the loop, followed by a 1-second hold so the GUI can settle on the
     100% value before the next phase resets the bar to 0%.
 """
@@ -79,8 +79,8 @@ class GISPurgeService(ActivityService):
 
             # --- Purge loop ---
             #
-            # Mirrors v2.1's pattern: emit progress at the start of each
-            # second (0, 1, 2, ..., N-1), then sleep. After the loop,
+            # Emit progress at the start of each second
+            # (0, 1, 2, ..., N-1), then sleep. After the loop,
             # emit the final N tick and hold for one second so the
             # ProgressBar reaches and visibly displays 100% before the
             # next phase begins.

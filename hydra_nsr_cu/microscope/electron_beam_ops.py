@@ -7,9 +7,7 @@ intention-revealing surface. Two implementations live side by side:
 * :class:`SimulatedElectronBeamOps` — in-memory simulation for offline UI development.
 
 The exposed surface is currently minimal — only what the Stage / Scan
-page (Session 6) needs: scan rotation. Future consumers (Cryo Prep
-imaging activities, beam-condition recorders) may grow this file with
-high voltage, beam current, on/off, etc.; the class structure mirrors
+page needs: scan rotation. The class structure mirrors
 :mod:`ion_beam_ops` so additions stay symmetric across the two beams.
 """
 from __future__ import annotations
@@ -72,8 +70,7 @@ class SimulatedElectronBeamOps:
         # on hardware, where a write of exactly 2π raised "specified
         # value is out of range". Enforcing the same domain here makes
         # out-of-range writes fail in simulation instead of passing
-        # silently (which is how the unwrapped +π scan-rotate-after
-        # bug shipped in 3.0.1).
+        # silently.
         if not 0.0 <= value < math.tau:
             raise ValueError(
                 f"Specified value is out of range: {value!r} rad "

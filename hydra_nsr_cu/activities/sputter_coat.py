@@ -1,61 +1,36 @@
 """Sputter Coat activity service.
 
 Hardware-side implementation of the Sputter Coat activity used in
-Cryo Prep workflows on **Hydra NSR** systems. The NSR sputter coater is
-not a dedicated MicroSputter device — instead, NSR sputters by applying
-a saved FEI pattern file (``.ptf``) through the ion-beam patterning
+Cryo Prep workflows on Hydra NSR systems, which sputter by applying a
+saved FEI pattern file (``.ptf``) through the ion-beam patterning
 subsystem, with the coater exposed as a GIS port (the *µCoater*).
-
-Sequence
---------
+Sequence:
 
 1. Validate the configured pattern file (exists, is a file, ``.ptf``).
 2. Resolve the coater GIS port (looked up by name from settings).
 3. Verify Z is linked to the free working distance.
 4. Tilt the stage to zero, then move to the saved sputter-coat position.
-5. Set ion species (plasma gas), turn on the ion beam, set high voltage
-   and beam current.
-6. Insert the coater GIS needle. Always retracted before the activity
-   returns (stop, completion, exception).
-7. Set the ion-beam HFW.
-8. Parse the ``.ptf`` into polygon vertices, pitch, and application file.
-9. Clear existing patterns, create the polygon pattern, configure it
-   (pitch, application file, ion beam type), zero the working distance,
-   set the patterning default application file.
-10. Run the pattern for the configured duration (interruptible
-    per-second loop). Patterning is always stopped and patterns cleared
-    before the activity returns.
-11. Retract the coater GIS.
-12. Per-second interruptible chamber recovery.
+5. Set ion species, turn on the ion beam, set high voltage and current.
+6. Insert the coater GIS needle — always retracted before the activity
+   returns.
+7. Set the ion-beam HFW, parse the ``.ptf``, clear existing patterns,
+   and create and configure the polygon pattern.
+8. Run the pattern for the configured duration (interruptible
+   per-second loop). Patterning is always stopped and patterns cleared
+   before the activity returns.
+9. Retract the coater GIS, then per-second interruptible chamber recovery.
 
-Cancellation and cleanup
-------------------------
-
-Mirrors :class:`GISDepositionService`'s nested-try/finally model. The
-outer try owns the GIS needle (insert/retract); an inner try owns the
-patterning job (start → stop + clear). A stop or exception at any point
-after insert unwinds both: patterning is stopped and cleared, then the
-needle is retracted. Stop checks bracket every uninterruptible step.
-
-PFIB conditions
----------------
+Cleanup mirrors :class:`GISDepositionService`'s nested try/finally:
+the outer block owns the needle, the inner block owns the patterning
+job. Stop checks bracket every uninterruptible step.
 
 Sputter Coat mutates plasma gas, high voltage, beam current, HFW, and
-beam-on state. Capture and restore of the beam-electrical / ion-species
-state is handled at the workflow level (see
-:class:`CPWorkflow._on_commit_to_run` and the PFIBConditionsRecorder),
-gated on the two "Restore PFIB ..." settings. The activity itself does
-not undo its mutations: in a multi-coat sequence, restoring between
-consecutive Sputter Coats would revert state we're about to mutate
-again.
-
-Position resolution
--------------------
-
-Like GIS Deposition, the activity receives target coordinates already
-resolved to a :class:`StagePosition` object (plus the position name for
-status messages); the workflow runner does the position-id → coordinate
-resolution at Start, so a deleted position is caught before any work.
+beam-on state but does not undo them itself (in a multi-coat sequence,
+restoring between coats would revert state about to be set again);
+capture and restore happen at the workflow level via the
+PFIBConditionsRecorder. The activity receives target coordinates
+already resolved to a :class:`StagePosition`; the runner resolves the
+position id before the run starts.
 """
 from __future__ import annotations
 
@@ -95,8 +70,7 @@ logger = logging.getLogger(__name__)
 # Polygon depth (metres) handed to create_polygon. Intentionally large —
 # the pattern would take a very long time to reach this depth, so the
 # sputter is bounded by the configured duration (we stop patterning when
-# the timer expires), not by the pattern completing. Ported from v2's
-# create_polygon(vertices, 1000e-6).
+# the timer expires), not by the pattern completing.
 _PATTERN_DEPTH_M = 1000e-6
 
 
@@ -236,7 +210,7 @@ class SputterCoatService(ActivityService):
         # Verify Z is linked. An unlinked Z makes the position's Z value
         # meaningless and risks needle collision. The pre-start check
         # also covers this at Start; this is the in-activity guard
-        # mirroring v2's is_linked check (defensive for mid-run adds).
+        # (defensive for mid-run adds).
         # ---------------------------------------------------------------
         try:
             is_linked = self._stage.is_linked

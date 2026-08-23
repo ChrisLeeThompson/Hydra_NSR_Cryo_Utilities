@@ -3,46 +3,27 @@
 The Z height slider on the Stage / Scan page is gated when the stage is
 parked outside the safe range, so the user makes a deliberate choice
 before nudging Z from an operationally unusual position. This module is
-the decision core of that gate and nothing else: it is Qt-free and
-I/O-free, a pure function of two inputs —
-
-    * ``in_safe_range`` — whether the stage is currently within the safe
-      range (the radial check shared with the pre-start gate), fed in by
-      the controller's poll / activation evaluate.
-    * ``acknowledged``  — whether the user has acknowledged the
-      out-of-range condition by clicking Unlock.
-
-Keeping it pure mirrors :mod:`hydra_nsr_cu.pre_start_checks`: the
-hardware reads, the poll timer, and the QML property exposure all live
-in :class:`hydra_nsr_cu.stage_scan.controller.StageScanController`; this
-object only decides the state, so it is testable end-to-end with plain
-booleans.
+the decision core of that gate: Qt-free and I/O-free, a pure function of
+two inputs — ``in_safe_range`` (the radial check shared with the
+pre-start gate, fed by the controller's poll) and ``acknowledged`` (the
+user clicked Unlock). Hardware reads, the poll, and QML exposure live in
+:class:`hydra_nsr_cu.stage_scan.controller.StageScanController`.
 
 States
 ------
 ``UNKNOWN``
-    No safe-range reading has arrived yet (gate freshly constructed,
-    before the first poll). Fail-closed: the slider is disabled, but the
-    lock overlay is *not* shown; the alarm is reserved for a confirmed
-    out-of-range reading. This keeps the overlay from flashing on first
-    page activation, where the first reading lands asynchronously (one
-    worker poll tick) after the page becomes visible.
+    No reading yet. Fail-closed: slider disabled, but no lock overlay,
+    so the overlay doesn't flash before the first (asynchronous) poll.
 ``SAFE``
-    Stage within the safe range. The slider is live; the acknowledgement
-    is irrelevant in this state.
+    Within the safe range. Slider live; acknowledgement irrelevant.
 ``BLOCKED``
-    Out of range and not acknowledged. The overlay is shown with the
-    Unlock affordance and the slider is disabled.
+    Out of range and not acknowledged. Overlay shown, slider disabled.
 ``UNLOCKED``
-    Out of range and acknowledged. The overlay is gone and the slider is
-    live for as long as this excursion lasts.
+    Out of range and acknowledged. Overlay gone, slider live.
 
-Lifecycle (RESET_ON_PASS)
--------------------------
-Returning to the safe range clears the acknowledgement, so a later
-excursion out of range prompts afresh rather than staying unlocked. The
-acknowledgement is scoped to the out-of-range episode that warranted it,
-not to the session.
+Returning to the safe range clears the acknowledgement (RESET_ON_PASS),
+so a later excursion prompts afresh; the acknowledgement is scoped to
+the out-of-range episode, not the session.
 """
 from __future__ import annotations
 

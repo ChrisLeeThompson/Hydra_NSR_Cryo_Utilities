@@ -161,8 +161,6 @@ class AppController(QObject):
         # constructed alongside the stage_positions controller in
         # _create_microscope_dependent_services. Backs the manual-
         # assist Stage / Scan page (rotation, scan rotate 180°, Z slider).
-        # B4: only the scan_rotate_180 Slot is implemented; rotation
-        # and Z slider land at B5 and B6.
         self._stage_scan: Optional[StageScanController] = None
 
         # Cryo activities controller. Unlike the workflow runners, it
@@ -568,7 +566,7 @@ class AppController(QObject):
         # The rotation operation claims the cross-page lock the same way
         # workflows do: rotationStarted → set running id, rotationFinished
         # → clear it. The scan-rotate-180 Slot is too fast to bother
-        # locking (per Q12), so it deliberately doesn't touch the lock.
+        # locking, so it deliberately doesn't touch the lock.
         self._stage_scan = StageScanController(
             microscope=self._microscope,
             settings=self._settings,
@@ -586,31 +584,25 @@ class AppController(QObject):
 
         Two concerns share these closures:
 
-        1. **Cross-page tracking** (the original use): set
-           :attr:`runningWorkflowId` on start, clear it on finish.
-           This is what gates page enable/disable.
+        1. **Cross-page tracking**: set :attr:`runningWorkflowId` on
+           start, clear it on finish. This is what gates page
+           enable/disable.
 
-        2. **Session logging** (new in the session-log build): forward
-           the workflow lifecycle into :attr:`_session_log` so that
-           the running workflow appears in the Session Log page as
-           it progresses, and lands as a durable record in the JSONL
-           file on disk.
+        2. **Session logging**: forward the workflow lifecycle into
+           :attr:`_session_log` so the running workflow appears in
+           the Session Log page as it progresses and lands as a
+           durable record in the JSONL file on disk.
 
         For (2), the workflow's :attr:`activityRecorded` signal goes
-        straight to :meth:`SessionLog.on_activity_recorded` — its
-        payload is workflow-id-agnostic and the SessionLog routes
-        each activity to its currently-open session by its own
-        internal state. The total duration on workflow finish comes
-        from :meth:`WorkflowRunner.totalDuration` (the additive
-        accessor added in step 3 — kept off the
-        :attr:`workflowFinished` signal payload so that signal stays
-        narrow for existing consumers, matches the
-        :meth:`activityDuration` / :meth:`lastStatusMessage` pattern).
+        straight to :meth:`SessionLog.on_activity_recorded`; the
+        SessionLog routes each activity to its currently-open session.
+        The total duration on finish comes from
+        :meth:`WorkflowRunner.totalDuration`, kept off the
+        :attr:`workflowFinished` payload so that signal stays narrow.
 
-        Order within each closure: cross-page lock is updated
-        *first*, then the SessionLog call. Existing UI-lock
-        observers see the state transition before any disk writing
-        happens — preserves the prior semantics order.
+        Within each closure the cross-page lock is updated *first*,
+        then the SessionLog call, so UI-lock observers see the state
+        transition before any disk writing happens.
         """
 
         def _on_started() -> None:

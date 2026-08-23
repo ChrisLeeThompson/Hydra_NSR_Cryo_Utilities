@@ -31,8 +31,8 @@ can set ``poly.beam_type = patterning.ion_beam_type`` without reaching
 into the raw SDB tree.
 
 No timed loop lives here: ``start()`` / ``stop()`` are immediate, and
-the per-second interruptible run loop lives in the activity (matching
-v2's ``run_sputter_coat_pattern``), so a long sputter stays cancellable.
+the per-second interruptible run loop lives in the activity, so a long
+sputter stays cancellable.
 """
 from __future__ import annotations
 

@@ -56,12 +56,22 @@ Rectangle {
             Layout.preferredWidth: 0
             elide: Text.ElideRight
             horizontalAlignment: Text.AlignLeft
+
+            // Full text on hover, only when the bar had to elide it
+            // (compact window widths).
+            HoverHandler { id: transientHover }
+            ToolTip.text: root.message
+            ToolTip.visible: transientHover.hovered && transientLabel.truncated
+            ToolTip.delay: AppConfig.toolTipDelayMs
         }
 
         // Center — progress
         ProgressBar {
             id: statusBarProgressBar
-            Layout.preferredWidth: AppConfig.statusBarProgressWidth
+            // Collapse when idle so the transient message can use the
+            // space; the opacity fade below still hides it smoothly.
+            Layout.preferredWidth: root.busy ? AppConfig.statusBarProgressWidth : 0
+            Layout.maximumWidth: Layout.preferredWidth
             Layout.alignment: Qt.AlignHCenter
             opacity: root.busy ? 1 : 0
             value: root.progress

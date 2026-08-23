@@ -26,6 +26,7 @@ from enum import Enum
 from typing import Any, Callable, Dict, List
 
 from ..pre_start_checks import PreStartCheck
+from ..status_text import exception_detail, failure_status
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,12 @@ logger = logging.getLogger(__name__)
 # concretely just python callables; aliases here let the activity
 # signatures stay narrow and self-documenting.
 ProgressCallback = Callable[[int, int], None]   # (current_seconds, total_seconds)
-StatusCallback = Callable[[str], None]          # human-readable status text
+# ``on_status(text)`` — short, user-facing status text. The workflow
+# runner's callback also accepts an optional second argument,
+# ``on_status(text, detail)``, carrying a longer summary for the
+# activity's status-icon tooltip; only :func:`report_activity_exception`
+# uses it.
+StatusCallback = Callable[..., None]
 
 # Sentinel value for indeterminate progress. Used by activities that
 # enter an uninterruptible phase whose progress isn't observable from
@@ -69,24 +75,11 @@ def report_activity_exception(
 ) -> None:
     """Standardized "operation failed" reporting for activity ``except`` blocks.
 
-    Emits two pieces of state:
-
-    * The traceback to the log via :func:`logger.exception`, tagged
-      with ``log_prefix`` and the ``phase`` label
-      (e.g. ``"GIS Deposition [abc]: stage move failed"``).
-    * A concise status message intended for the activity's status-icon
-      tooltip, combining ``status_prefix``, ``phase``, and ``str(exc)``
-      with an em-dash separator
-      (e.g. ``"GIS deposition: stage move failed — Specified position
-      is out of range"``).
-
-    Per the AutoScript SDK, every exception carries a human-readable
-    message via ``str(exc)``, so the tooltip surfaces the actual cause
-    rather than the bland phase label alone. The exception's type name
-    is intentionally not prepended — the message itself is the
-    human-readable form. The runner's uncaught-path fallback DOES
-    include the type name, because in that case the type is all we
-    have for orientation.
+    Logs the traceback (``"<log_prefix>: <phase> failed"``) and sends a
+    short status — ``"<status_prefix>: <phase> failed (see console
+    log)"`` — through ``on_status``, with a one-line
+    ``"<Type>: <message>"`` summary of ``exc`` as the detail argument
+    for the activity's status-icon tooltip.
 
     Typical use::
 
@@ -99,26 +92,17 @@ def report_activity_exception(
             return ActivityResult.EXCEPTION
 
     Args:
-        on_status: The activity's status callback. The composed message
-            is delivered through it so the worker captures it as the
-            activity's ``last_status`` for the tooltip.
+        on_status: The activity's status callback.
         log_prefix: Log-side prefix, typically including ``instance_id``
-            (e.g. ``"GIS Deposition [abc]"``). Used only for the log
-            line — distinct from ``status_prefix`` so multi-instance
-            activities can correlate log entries to specific rows
-            without leaking ``instance_id`` into the user-facing
-            tooltip.
+            (e.g. ``"GIS Deposition [abc]"``), kept out of the
+            user-facing text.
         status_prefix: User-facing prefix (e.g. ``"GIS deposition"``).
-            Used in the status message that surfaces in the tooltip.
         phase: Short label for what was being attempted (e.g.
-            ``"stage move"``, ``"setting ion species"``,
-            ``"opening valve"``). Both the log entry and the status
-            read ``"<prefix>: <phase> failed"``.
-        exc: The caught exception. The traceback goes to the log;
-            ``str(exc)`` is appended to the status with an em-dash.
+            ``"stage move"``, ``"setting ion species"``).
+        exc: The caught exception.
     """
     logger.exception("%s: %s failed", log_prefix, phase)
-    on_status(f"{status_prefix}: {phase} failed — {exc}")
+    on_status(failure_status(status_prefix, phase), exception_detail(exc))
 
 
 class ActivityResult(str, Enum):
@@ -267,7 +251,7 @@ class ActivityService(ABC):
     # around the activity's run; its values come from constructor args,
     # so for activities built from a ``WorkflowSettingsSnapshot`` the
     # recorded parameters inherit the snapshot's "values as of Start,
-    # not as of later" guarantee for free.
+    # not as of later" guarantee.
 
     def parameter_summary(self) -> Dict[str, Any]:
         """Return a JSON-serializable dict of the parameters this activity used.
