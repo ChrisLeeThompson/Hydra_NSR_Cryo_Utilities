@@ -1,8 +1,13 @@
 # Hydra NSR Cryo Utilities
 
-<!-- Full documentation: https://<site>/scripts/hydra_nsr_cryo_utilities/ (enable this link when the site is live) -->
+> [!NOTE]
+> **Full documentation:** https://chrisleethompson.github.io/scripts/hydra_nsr_cryo_utilities/
 
 A PySide6/QML desktop utility for the Thermo Scientific Hydra NSR (Non-standard Request) cryo plasma FIB-SEM. It supports common cryo workflows on the microscope with automated preparation activities, stage movement controls, and angle calculators, and it runs through the Thermo Scientific AutoScript SDK. This script supports the Hydra NSR variant equipped with a gas injection system (GIS) Pt microsputter coater target; its Sputter Coat activity differs from the one in Hydra Bio Cryo Utilities, and the rest of the UI is nearly identical.
+
+## Documentation
+
+Full documentation: https://chrisleethompson.github.io/scripts/hydra_nsr_cryo_utilities/
 
 ## Features
 
