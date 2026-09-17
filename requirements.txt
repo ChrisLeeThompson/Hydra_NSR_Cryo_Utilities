@@ -1,5 +1,5 @@
 # Hydra NSR Cryo Utilities 3.0 — Python runtime dependencies.
-# Requires Python >= 3.11 (tested on 3.11.10). See pyproject.toml.
+# Requires Python >= 3.11 (tested on 3.11.14, the AutoScript 4.14 environment). See pyproject.toml.
 
 # GUI framework (Qt for Python). The app is built/tested against 6.7.1.
 PySide6>=6.7.1
