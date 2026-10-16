@@ -6,7 +6,7 @@ import "../Js"
 //
 // The green gauge overlay: an arc along the tilt gauge from the tilt-0
 // position to the stage plane arm's current position (left arm for
-// positive tilt, right arm for negative). Stacked ABOVE the reference
+// positive tilt, right arm for negative). Stacked above the reference
 // graphics in ShuttleDiagram so it overlays the gauge arc line; the
 // rest of the tilt-dependent drawing (shuttle image, stage-plane guide)
 // lives in ShuttleGraphics, below the reference layer.

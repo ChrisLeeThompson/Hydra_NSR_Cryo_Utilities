@@ -13,7 +13,7 @@ import "../Js"
 // rotation regime.
 //
 // Chalk lines represent FIB cuts. They are stored (owned by
-// SampleDiagram) as { localAngleDeg, creationRegime }: the LOCAL angle
+// SampleDiagram) as { localAngleDeg, creationRegime }: the local angle
 // in the sample-plane frame (by the milling angle identity, the milling
 // angle the line was cut at) plus the regime it was cut in. When shown
 // in the other regime the angle is mirrored (the 180-degree stage
@@ -136,7 +136,7 @@ Item {
             ctx.strokeRect(cx - gw / 2, gridCenterY - gh / 2, gw, gh)
 
             // --- Chalk lines ---
-            // Drawn at the effective local angle for the DISPLAYED
+            // Drawn at the effective local angle for the displayed
             // regime so lines mirror together with the plane through
             // the flip animation.
             ctx.lineWidth = AppConfig.sampleFigureChalkLineWidth
@@ -186,7 +186,7 @@ Item {
                         : AppConfig.sampleFigureChalkLineColor
     }
 
-    // Stroke a line through the figure center at the given LOCAL angle,
+    // Stroke a line through the figure center at the given local angle,
     // clipped to the union of the sample and grid rectangles (the two
     // most distant intersection points, as in the arctis calculator).
     // Drawing happens in the rotating canvas, so local angles are used

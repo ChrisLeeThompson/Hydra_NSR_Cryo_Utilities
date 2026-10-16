@@ -33,7 +33,7 @@ Item {
     // ----------------------------------------------------------------
     // Wheel over the figure steps the stage tilt directly (1 degree per
     // notch, clamped to the stage limits) via stageTiltAdjusted - the
-    // page applies it WITHOUT animation, so the figure tracks the wheel
+    // page applies it without animation, so the figure tracks the wheel
     // snappily. angleDelta accumulates into standard 120-unit notches,
     // which coalesces high-resolution trackpad event floods into clean
     // steps. NOTE: this consumes plain wheel events over the figure, so
@@ -64,7 +64,7 @@ Item {
     implicitWidth: referenceLayer.implicitWidth
     implicitHeight: referenceLayer.implicitHeight
 
-    // The dynamic layer (shuttle image, indicator arc) sits BELOW the
+    // The dynamic layer (shuttle image, indicator arc) sits below the
     // reference layer so the gauge arcs, ticks, and labels stay readable
     // when the rotated shuttle sweeps through the gauge region at high
     // tilt angles. Both layers are line art, so the overlap is benign.

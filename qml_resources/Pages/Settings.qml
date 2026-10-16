@@ -380,33 +380,35 @@ Item {
 
                 }
 
-                // ---- Row 10: Zero Tilt Before GIS Deposition ----
+                // ---- Row 10: Zero Tilt Before Stage Moves ----
                 //
-                // When checked, each GIS Deposition activity tilts the stage
-                // to zero degrees before moving to its deposition position,
-                // so the XY/Z translation happens from a flat orientation.
-                // Adds an extra stage move per deposition — leave off for
-                // workflows that hop between nearby positions (e.g. grid 1 to
-                // grid 2) where the tilt is just dead time.
+                // When checked, every move to a saved or captured position
+                // (GIS Deposition, Sputter Coat, Move To, Move Stage To
+                // Original Position) is a staged move: tilt to 0°, move
+                // X/Y/Z and rotation, then tilt to the position's tilt, so
+                // the rotation happens flat. Adds up to two tilt moves per
+                // position — leave off for workflows that hop between nearby
+                // positions (e.g. grid 1 to grid 2) where the tilts are just
+                // dead time.
 
                 ToolTippedLabel {
 
-                    id: zeroTiltBeforeGisDepositionLabel
+                    id: zeroTiltBeforeStageMovesLabel
                     Layout.row: 10
                     Layout.column: 0
-                    text: "Zero Tilt Before GIS Deposition"
-                    toolTipText: Strings.zeroTiltBeforeGisDepositionLabelTooltip
+                    text: "Zero Tilt Before Stage Moves"
+                    toolTipText: Strings.zeroTiltBeforeStageMovesLabelTooltip
                 }
 
                 CheckBox {
 
-                    id: zeroTiltBeforeGisDepositionCheckBox
+                    id: zeroTiltBeforeStageMovesCheckBox
                     Layout.row: 10
                     Layout.column: 1
                     Layout.alignment: Qt.AlignRight
                     enabled: !appController.anyWorkflowRunning
-                    checked: appController.settings.zeroTiltBeforeGisDeposition
-                    onToggled: appController.settings.zeroTiltBeforeGisDeposition = checked
+                    checked: appController.settings.zeroTiltBeforeStageMoves
+                    onToggled: appController.settings.zeroTiltBeforeStageMoves = checked
 
                 }
 
@@ -459,7 +461,7 @@ Item {
                     ToolTip.timeout: AppConfig.toolTipTimeoutMs
                     ToolTip.visible: hovered
 
-                    // Disable while ANY workflow is running (not just RT) —
+                    // Disable while any workflow is running (not just RT) —
                     // restoring defaults mid-run is confusing and the
                     // parameters are baked in to the running activity anyway.
                     // Matches the page-wide anyWorkflowRunning lock used by
@@ -503,14 +505,14 @@ Item {
                     ToolTip.timeout: AppConfig.toolTipTimeoutMs
                     ToolTip.visible: hovered
 
-                    // Disable while ANY workflow is running — matches the
+                    // Disable while any workflow is running — matches the
                     // page-wide anyWorkflowRunning lock. This acts on
                     // cryoActivities, which is always present (no microscope
-                    // required), so the gate must NOT require cpWorkflow to be
+                    // required), so the gate must not require cpWorkflow to be
                     // non-null: cpWorkflow is null until the client is
                     // constructed, and anyWorkflowRunning is false while
                     // offline/idle, so the button stays enabled during
-                    // offline setup. The (cpWorkflow-absent OR not-running)
+                    // offline setup. The (cpWorkflow-absent or not-running)
                     // clause keeps that offline-enable explicit even though
                     // anyWorkflowRunning already covers the run case.
                     enabled: (!appController.cpWorkflow

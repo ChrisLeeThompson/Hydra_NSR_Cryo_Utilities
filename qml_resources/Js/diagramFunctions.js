@@ -174,7 +174,7 @@ function lineRotatedRectangleIntersection(lineCenterX, lineCenterY, lineAngleDeg
 }
 
 // Calculate the intersection between a ray (from a point at a screen angle,
-// extending in BOTH directions, i.e. a full line) and a line segment.
+// extending in both directions, i.e. a full line) and a line segment.
 // Returns {x, y} or null if no intersection on the segment.
 function lineLineIntersection(rayCenterX, rayCenterY, rayAngleDeg,
                               segX1, segY1, segX2, segY2) {

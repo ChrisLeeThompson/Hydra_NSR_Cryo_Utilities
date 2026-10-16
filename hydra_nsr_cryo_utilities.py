@@ -72,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
     # window rendering on the connect attempt.
     # The DEV_FORCE_SIMULATION dev toggle lives in defaults.py's
     # "Developer / testing overrides" section (alongside the other
-    # DEV_FORCE_* flags); OR it with the --simulation CLI flag here.
+    # DEV_FORCE_* flags); combine it with the --simulation CLI flag here.
     force_simulation = args.simulation or defaults.DEV_FORCE_SIMULATION
     if defaults.DEV_FORCE_SIMULATION:
         logger.warning(

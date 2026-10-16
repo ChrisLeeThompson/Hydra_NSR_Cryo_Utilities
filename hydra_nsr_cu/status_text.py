@@ -27,8 +27,11 @@ def shorten(text: str, limit: int = MAX_STATUS_CHARS) -> str:
     """Collapse whitespace and truncate ``text`` to ``limit`` characters.
 
     A truncated string ends with a single ellipsis character and is
-    exactly ``limit`` characters long. Never raises: non-string input
-    is coerced with :func:`str`.
+    exactly ``limit`` characters long. When ``text`` ends with
+    :data:`SEE_LOG`, that pointer is kept and the head before it is
+    what gets truncated, so a shortened failure line still tells the
+    user where to look. Never raises: non-string input is coerced
+    with :func:`str`.
     """
     try:
         flat = _WS.sub(" ", str(text)).strip()
@@ -38,6 +41,11 @@ def shorten(text: str, limit: int = MAX_STATUS_CHARS) -> str:
         return flat
     if limit == 1:
         return "…"
+    if flat.endswith(SEE_LOG):
+        head_limit = limit - len(SEE_LOG) - 1
+        if head_limit >= 2:
+            head = flat[: -len(SEE_LOG)].rstrip()
+            return f"{shorten(head, head_limit)} {SEE_LOG}"
     return flat[: limit - 1].rstrip() + "…"
 
 

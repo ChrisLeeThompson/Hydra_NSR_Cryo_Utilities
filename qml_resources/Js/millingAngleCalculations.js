@@ -7,15 +7,15 @@
 // single source of truth for the Hydra NSR milling-angle geometry:
 //
 //   * The SEM column is vertical (90 degrees from horizontal).
-//   * The FIB column is 52 degrees from the SEM, on the RIGHT side of the
+//   * The FIB column is 52 degrees from the SEM, on the right side of the
 //     SEM in the side-view figures (38 degrees above horizontal).
 //   * The AutoGrid shuttle holds the grid/sample on a 35 degree pre-tilt
 //     face.
 //   * The stage rotation position determines the sign with which the
 //     pre-tilt enters the milling-angle relationship:
-//       - At stage rotation  -70 deg the pre-tilt SUBTRACTS:
+//       - At stage rotation  -70 deg the pre-tilt subtracts:
 //             millingAngle = stageTilt + (38 - 35) = stageTilt + 3
-//       - At stage rotation +110 deg the pre-tilt ADDS:
+//       - At stage rotation +110 deg the pre-tilt adds:
 //             millingAngle = stageTilt + (38 + 35) = stageTilt + 73
 //
 //   Anchor points (validated in tests/test_millingAngleCalculations.mjs):
@@ -30,7 +30,7 @@
 //   * QML Item.rotation is clockwise-positive; use shuttleItemRotation()
 //     for values fed directly to Image/Item rotation properties.
 //
-// Stage tilt limits (AppConfig.stageTiltAngleMin / Max) are NOT duplicated
+// Stage tilt limits (AppConfig.stageTiltAngleMin / Max) are not duplicated
 // here. Functions that need them take them as arguments so AppConfig
 // remains the single source of truth for UI limits.
 // =============================================================================
@@ -139,7 +139,7 @@ function semScreenAngleDeg() {
     return 90.0
 }
 
-// FIB line screen angle: 38 degrees above horizontal on the RIGHT side
+// FIB line screen angle: 38 degrees above horizontal on the right side
 // of the SEM (counter-clockwise from horizontal right).
 function fibScreenAngleDeg() {
     return FIB_ANGLE_FROM_HORIZONTAL_DEG
@@ -153,7 +153,7 @@ function gisScreenAngleDeg() {
 
 // Rotation to apply to the shuttle/sample graphics for a given stage tilt,
 // in QML Item.rotation convention (clockwise-positive). The SVGs are drawn
-// at stage tilt 0; positive stage tilt rotates the shuttle CLOCKWISE on
+// at stage tilt 0; positive stage tilt rotates the shuttle clockwise on
 // screen. This sign is forced by the anchor points: at rot 110 the sample
 // face must reach -52 deg screen angle (perpendicular to the 38 deg FIB
 // line) at stage tilt +17. Confirmed against the AutoScript manual:
@@ -167,8 +167,8 @@ function shuttleItemRotation(stageTiltDeg) {
 // Screen angles of the two arms of the stage plane at a given stage tilt
 // (counter-clockwise from horizontal right). The tilt gauge in the figures
 // is a protractor of the stage plane itself: tick marks for negative tilts
-// sit on the RIGHT arm's path (rising toward the FIB for negative tilt),
-// tick marks for positive tilts sit on the LEFT arm's path. Both arms
+// sit on the right arm's path (rising toward the FIB for negative tilt),
+// tick marks for positive tilts sit on the left arm's path. Both arms
 // rotate with the shuttle (clockwise for positive tilt), so at tilt t:
 //   right arm: 0 - t    (tilt -10 -> screen +10)
 //   left arm:  180 - t  (tilt +60 -> screen +120)
@@ -208,9 +208,9 @@ function sampleFaceScreenAngleDeg(stageTiltDeg, rotationRegime) {
 // -----------------------------------------------------------------------------
 //
 // Chalk lines represent FIB cuts on the sample. They live in the sample
-// plane's LOCAL frame and are stored as { localAngleDeg, creationRegime }.
+// plane's local frame and are stored as { localAngleDeg, creationRegime }.
 //
-// THE MIRROR RULE. The two rotation regimes are 180 degrees apart about
+// The mirror rule. The two rotation regimes are 180 degrees apart about
 // the stage-plate normal. That rotation mirrors the side-view projection
 // about the vertical, mapping an undirected line at local angle L to
 // -L (mod 180). (It is the same reflection the figures animate as the
@@ -235,8 +235,8 @@ function sampleFaceScreenAngleDeg(stageTiltDeg, rotationRegime) {
 // Anchor points (validated in tests/test_millingAngleCalculations.mjs
 // and by independent 3D rotation-matrix derivation):
 //     line cut at rot -70, tilt 35 has localAngleDeg 38;
-//     at rot 110 it is PARALLEL to the SEM at stage tilt +17;
-//     PERPENDICULAR to the SEM at rot 110 would need stage tilt -73
+//     at rot 110 it is parallel to the SEM at stage tilt +17;
+//     perpendicular to the SEM at rot 110 would need stage tilt -73
 //     (or +107) - unreachable within the stage limits;
 //     at rot 110, tilt +3 it has NO relation to the SEM (a pre-fix bug
 //     reported perpendicular there).
@@ -263,7 +263,7 @@ function normalizeLineAngleDeg(angleDeg) {
     return ((angleDeg % 180) + 180) % 180
 }
 
-// Local angle of the same physical line viewed in the OTHER regime
+// Local angle of the same physical line viewed in the other regime
 // (the mirror rule - see the section comment above).
 function mirroredLocalAngleDeg(localAngleDeg) {
     return normalizeLineAngleDeg(-localAngleDeg)

@@ -53,6 +53,7 @@ from ..pre_start_checks.checks import (
     is_within_safe_range,
 )
 from ..settings.settings_controller import SettingsController
+from ..status_text import SEE_LOG, shorten
 from .z_safety_gate import ZSafetyGate
 
 logger = logging.getLogger(__name__)
@@ -696,9 +697,9 @@ class StageScanController(QObject):
         )
         self._microscope.electron_beam.scan_rotation_rad = target_rad
         self._microscope.ion_beam.scan_rotation_rad = target_rad
-        self.statusUpdated.emit(
+        self.statusUpdated.emit(shorten(
             f"Scan rotated SEM and FIB to {math.degrees(target_rad):.0f}°"
-        )
+        ))
 
     def _rotate_scan_by_180(self) -> None:
         """Add π radians to both SEM and FIB scan rotation, wrapped to [0, 2π).
@@ -1135,7 +1136,7 @@ class StageScanController(QObject):
         friendly = self._format_phase_friendly(kind, tilt_rad)
         self._current_phase_friendly = friendly
         if kind in _SUCCESS_VISIBLE_PHASES:
-            self.statusUpdated.emit(f"{friendly}...")
+            self.statusUpdated.emit(shorten(f"{friendly}..."))
 
     @Slot(bool, str)
     def _on_rotate_finished(self, success: bool, reason: str) -> None:
@@ -1164,7 +1165,7 @@ class StageScanController(QObject):
             self.statusUpdated.emit("Stage rotation cancelled")
         else:
             phase_text = self._current_phase_friendly or "Stage rotation"
-            self.statusUpdated.emit(f"{phase_text} failed")
+            self.statusUpdated.emit(shorten(f"{phase_text} failed {SEE_LOG}"))
 
         self._current_phase_friendly = None
         self.rotationFinished.emit(success, reason)

@@ -249,7 +249,7 @@ class PFIBConditionsRecorder:
         the enabled groups still attempt. Failures don't raise; they
         come back in the returned list (empty on full success) so the
         caller can surface them to the user. The one exception is
-        ``should_abandon`` returning True: that skips ALL remaining
+        ``should_abandon`` returning True: that skips all remaining
         work and appends an :data:`ABANDONED_FIELD` marker.
 
         Exceptions from the SDK are recovered where recovery is safe —
@@ -384,11 +384,11 @@ class PFIBConditionsRecorder:
         Returns True iff the readback verified at target. The switch
         is never re-issued: on an exception (typically the server's
         own wait giving up while the source is still conditioning) or
-        a readback that doesn't yet match, the recovery is to WAIT —
+        a readback that doesn't yet match, the recovery is to wait —
         poll the readback for a bounded settle window — not to write
         again.
         """
-        # The skip-if-equal read is guarded SEPARATELY from the write:
+        # The skip-if-equal read is guarded separately from the write:
         # a transient readback glitch must not silently skip the
         # switch (setting the gas to its current value is a benign
         # no-op request, so when in doubt, write).
@@ -454,7 +454,7 @@ class PFIBConditionsRecorder:
         strike the source). ``turn_on`` gets the
         full treatment: verify by ``is_on`` readback after an
         exception (or a call that returns with the beam still off),
-        then — only if the beam is verified genuinely off AND the
+        then — only if the beam is verified genuinely off and the
         species readback verified at its target — a single retry, the
         operator-equivalent of clicking Beam On once more after a
         server wait timeout. Hard cap: two ``turn_on`` calls per
@@ -503,9 +503,9 @@ class PFIBConditionsRecorder:
                            "during beam-on wait"):
             return
 
-        # A False poll return can mean "observed off" OR "every read
+        # A False poll return can mean "observed off" or "every read
         # raised for the whole window". The retry must only ever fire
-        # on a GENUINE off observation, so re-check with one explicit
+        # on a genuine off observation, so re-check with one explicit
         # read. A read that raises leaves the beam state unknown — no
         # retry; a read that returns True means the beam actually came
         # on and the restore recovered after all.

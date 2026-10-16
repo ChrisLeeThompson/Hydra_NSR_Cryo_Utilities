@@ -12,7 +12,7 @@ import "../Js"
 //   labels
 //
 // This component owns the chalk line state: a list of
-// { localAngleDeg, creationRegime } objects - the LOCAL angle in the
+// { localAngleDeg, creationRegime } objects - the local angle in the
 // sample-plane frame (equal to the milling angle the line was cut at)
 // tagged with the rotation regime it was cut in, so the line can be
 // mirrored when evaluated in the other regime (see the chalk line
@@ -43,7 +43,7 @@ Item {
     // ----------------------------------------------------------------
     // Wheel over the figure steps the stage tilt directly (1 degree per
     // notch, clamped to the stage limits) via stageTiltAdjusted - the
-    // page applies it WITHOUT animation, so the figure tracks the wheel
+    // page applies it without animation, so the figure tracks the wheel
     // snappily. angleDelta accumulates into standard 120-unit notches,
     // which coalesces high-resolution trackpad event floods into clean
     // steps. NOTE: this consumes plain wheel events over the figure, so

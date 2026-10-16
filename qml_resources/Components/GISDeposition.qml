@@ -7,7 +7,9 @@ import "../Config"
 //
 // Deposits material on the grid using the GIS at a saved stage
 // position. The activity exposes:
-//   • a position ComboBox sourced from the StagePositions controller
+//   • a position ComboBox sourced from the StagePositions controller,
+//     with a HolderChip beside it naming the holder the selected
+//     position was saved with (the holder the run selects to get there)
 //   • a duration spin box (seconds)
 //   • a chamber recovery spin box (seconds)
 //
@@ -91,6 +93,18 @@ GroupBox {
     readonly property string parameterSummary:
         (_positionName || "—") + ", " + duration + "s"
 
+    // Holder info of the selected position ({holder, tag,
+    // needsConfirmation}), or null when the id doesn't resolve. Anchored
+    // on _modelRevision like _positionName, so Update Position (which
+    // records a new holder) refreshes the chip.
+    readonly property var _positionHolder: {
+        const _ = root._modelRevision   // dependency anchor
+        if (!positionsModel || !positionId) return null
+        const idx = positionsModel.find_index_by_id(positionId)
+        if (idx < 0) return null
+        return positionsModel.holder_info(idx)
+    }
+
     // ----------------------------------------------------------------------
     // Model-revision counter — bumped whenever the positions model
     // changes (rows added, removed, reordered, or data updated). The
@@ -131,29 +145,46 @@ GroupBox {
             toolTipText: Strings.positionLabelTooltip
         }
 
-        ComboBox {
-            id: positionComboBox
+        RowLayout {
             Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
-            Layout.preferredWidth: root.width * 0.5
-            model: root.positionsModel
-            textRole: "name"
+            spacing: 6
 
-            // The current index is derived from positionId — but only
-            // when the model and id are both available. Re-evaluates
-            // whenever positionsModel.count changes (i.e. positions
-            // added / removed) or when our positionId changes.
-            currentIndex: {
-                if (!root.positionsModel || !root.positionId) return -1
-                return root.positionsModel.find_index_by_id(root.positionId)
+            // The holder the selected position was saved with.
+            HolderChip {
+                id: positionHolderChip
+                Layout.alignment: Qt.AlignVCenter
+                visible: root._positionHolder !== null
+                holder: root._positionHolder ? root._positionHolder.holder : ""
+                tag: root._positionHolder ? root._positionHolder.tag : ""
+                needsConfirmation: root._positionHolder
+                                   ? root._positionHolder.needsConfirmation
+                                   : false
             }
 
-            onActivated: {
-                if (!root.instanceId || !root.positionsModel) return
-                const rec = root.positionsModel.get(currentIndex)
-                if (rec && rec.id) {
-                    appController.cryoActivities.set_gis_position_id(
-                        root.instanceId, rec.id
-                    )
+            ComboBox {
+                id: positionComboBox
+                Layout.alignment: Qt.AlignVCenter
+                Layout.preferredWidth: root.width * 0.5
+                model: root.positionsModel
+                textRole: "name"
+
+                // The current index is derived from positionId — but only
+                // when the model and id are both available. Re-evaluates
+                // whenever positionsModel.count changes (i.e. positions
+                // added / removed) or when our positionId changes.
+                currentIndex: {
+                    if (!root.positionsModel || !root.positionId) return -1
+                    return root.positionsModel.find_index_by_id(root.positionId)
+                }
+
+                onActivated: {
+                    if (!root.instanceId || !root.positionsModel) return
+                    const rec = root.positionsModel.get(currentIndex)
+                    if (rec && rec.id) {
+                        appController.cryoActivities.set_gis_position_id(
+                            root.instanceId, rec.id
+                        )
+                    }
                 }
             }
         }

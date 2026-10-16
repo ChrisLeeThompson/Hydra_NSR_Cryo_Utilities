@@ -26,6 +26,8 @@ htmlcov/
 # repo (the repo ships only what the app needs to run).
 tests/
 docs/
+CONTEXT.md
+CLAUDE.md
 
 # ---- IDE / OS ----
 .vscode/

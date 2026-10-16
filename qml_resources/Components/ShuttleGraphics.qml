@@ -4,7 +4,7 @@ import "../Js"
 
 // Shuttle Graphics (dynamic layer)
 //
-// Draws the tilt-dependent elements that belong BELOW the reference
+// Draws the tilt-dependent elements that belong below the reference
 // graphics (the tilt indicator arc, which must overlay the gauge line,
 // lives in TiltIndicatorArc and is stacked above the reference layer
 // by ShuttleDiagram):

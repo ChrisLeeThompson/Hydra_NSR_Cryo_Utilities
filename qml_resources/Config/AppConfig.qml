@@ -57,6 +57,16 @@ QtObject {
     // template save options, whose scope labels read better on one line.
     readonly property int dialogWideWidth: 460
     readonly property int dialogPadding: 16
+    // Longest saved-position name the name dialog accepts. Mirrors
+    // defaults.py's STAGE_POSITION_NAME_MAX_CHARS — keep in step.
+    readonly property int positionNameMaxLength: 40
+
+    // Holder chip — the tag (AG, ST, HPF, LS, SM) beside a saved
+    // position's name. Fixed width, sized for the widest tag ("HPF"),
+    // so the chips line up down the list.
+    readonly property int holderChipWidth: 36
+    readonly property int holderChipHeight: 18
+    readonly property int holderChipFontSize: 12
 
     // Side Bar
     readonly property color sideBarBackground: "#263640" //"#34454f"
@@ -188,7 +198,7 @@ QtObject {
     // Milling Angle Page parameters
     //
     // Stage tilt limits are the physical stage range. Milling angle
-    // limits and defaults are NOT stored here: they are derived from the
+    // limits and defaults are not stored here: they are derived from the
     // stage tilt limits and the geometry in Js/millingAngleCalculations.js
     // (see MillingAngleCalculator.qml), so they can never drift out of
     // sync with the milling-angle formulas.

@@ -54,7 +54,7 @@ import "../Dialogs"
 //     it hasn't started yet.
 //
 //   • Switch enable rule: a switch is enabled while no workflow is
-//     running, OR while the activity is still in "idle" state during
+//     running, or while the activity is still in "idle" state during
 //     a run (hasn't started yet). Once an activity has begun or
 //     finished within a run, its switch locks until the workflow
 //     ends. Mirrors RoomTempPrepPage.qml.
@@ -499,7 +499,7 @@ Item {
 
                         const to = insertAt - (from < insertAt ? 1 : 0)
                         if (to !== from) {
-                            // Drive the controller, NOT the
+                            // Drive the controller, not the
                             // DelegateModel directly — the model is
                             // the source of truth and emits the
                             // signals that the DelegateModel watches.

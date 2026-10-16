@@ -47,7 +47,7 @@ class PreStartCheck(ABC):
     :class:`HardwareSnapshot` argument; the check returns a fresh
     :class:`PreStartCheckResult`.
 
-    Subclasses MUST NOT have side effects in :meth:`evaluate` — the
+    Subclasses must not have side effects in :meth:`evaluate` — the
     orchestrator deduplicates instances by type and only invokes
     the first instance of each class within a pass.
     """

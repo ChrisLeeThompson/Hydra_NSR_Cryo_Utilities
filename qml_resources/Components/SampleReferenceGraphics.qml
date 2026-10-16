@@ -14,10 +14,10 @@ import "../Js"
 //
 // Label behavior:
 // * Clicking the label cycles the stage tilt through the achievable
-//   perpendicular/parallel positions for that beam in the CURRENT
+//   perpendicular/parallel positions for that beam in the current
 //   rotation regime, wrapping around.
 // * Numbered chips next to each label list every achievable position
-//   in BOTH rotation regimes, in a FIXED canonical order (-70 regime
+//   in both rotation regimes, in a fixed canonical order (-70 regime
 //   first, then 110, each sorted by tilt) so chip numbers are stable
 //   identities for positions; regime flips never reorder them.
 //   Other-regime chips are dimmed - clicking those flips the stage
@@ -26,7 +26,7 @@ import "../Js"
 //   perpendicular, pink for parallel - so the relation reads at a
 //   glance without selecting or hovering. The border is dim at rest
 //   and brightens, with a translucent relation-colored fill, when the
-//   stage is currently AT that position (the chip's "active" state);
+//   stage is currently at that position (the chip's "active" state);
 //   the number stays neutral at rest and takes the relation color when
 //   active. Hovering a chip shows a tooltip with the relation, milling
 //   angle, stage tilt, and stage rotation for that position.
@@ -51,9 +51,9 @@ Item {
     property real centerY: height / 2
 
     // Per-beam chip lists: achievable { stageTiltDeg, relation,
-    // rotationRegime } entries for BOTH regimes, in a FIXED canonical
+    // rotationRegime } entries for both regimes, in a fixed canonical
     // order: -70 regime entries first, then 110, each sorted by tilt.
-    // The order is deliberately independent of the CURRENT regime so
+    // The order is deliberately independent of the current regime so
     // chip numbers are stable identities for positions - flipping the
     // regime swaps which group is dimmed, never the numbering.
     // Recomputed only when the chalk lines change.
@@ -95,7 +95,7 @@ Item {
                                        entry.stageTiltDeg)
     }
 
-    // Apply the next achievable position for the beam in the CURRENT
+    // Apply the next achievable position for the beam in the current
     // regime, wrapping around. Exposed for the page wiring and for
     // offscreen tests.
     function cycleBeam(beamName) {
@@ -210,7 +210,7 @@ Item {
                         required property int index
 
                         // The chip lights up in its relation's highlight
-                        // color when the stage is currently AT this
+                        // color when the stage is currently at this
                         // position (same regime, tilt within the
                         // relation tolerance).
                         readonly property bool _active:
@@ -231,7 +231,7 @@ Item {
 
                         // The number stays neutral while the chip is
                         // available and takes the relation color when the
-                        // stage is AT this position. The border carries
+                        // stage is at this position. The border carries
                         // the relation hue separately (see below), so the
                         // relation is readable at rest without activating.
                         readonly property color _numberColor:
@@ -251,7 +251,7 @@ Item {
                                 modelData.rotationRegime)
 
                         // Full detail on hover. The rotation regime
-                        // constants ARE the stage rotation angles
+                        // constants are the stage rotation angles
                         // (-70 / 110), so the regime value doubles as
                         // display text. Text is assembled here (not in
                         // Strings.qml) because every line is derived
@@ -280,7 +280,7 @@ Item {
                         // Border always carries the relation hue (mint =
                         // perpendicular, pink = parallel) so the chip's
                         // relation reads at a glance. Dim at rest, full
-                        // when the stage is AT this position; the
+                        // when the stage is at this position; the
                         // translucent fill above is the other "you are
                         // here" cue. Hover overrides to the accent color.
                         border.color: chipMA.containsMouse

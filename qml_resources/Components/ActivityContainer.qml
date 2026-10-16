@@ -88,8 +88,8 @@ Rectangle {
                                            || statusIconVisible
                                            || switchVisible
                                            || headerExtraArea.children.length > 0
-    // Body is open when the container has content AND either the user
-    // has expanded it OR collapsing is disabled (static surface).
+    // Body is open when the container has content and either the user
+    // has expanded it or collapsing is disabled (static surface).
     readonly property bool _bodyOpen: root._hasContent
                                       && (root.expanded || !root.collapsible)
 
@@ -521,7 +521,7 @@ Rectangle {
                 //     e.g. Stage Positions and Home Stage; content must
                 //     always be interactive because there's no toggle
                 //   • or the switch is checked
-                // …AND the activity isn't currently running.
+                // …and the activity isn't currently running.
                 enabled: (!root.switchVisible || root.switchChecked)
                          && root.activityState !== "running"
             }

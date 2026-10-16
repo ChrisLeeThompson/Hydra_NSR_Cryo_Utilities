@@ -29,12 +29,16 @@ import "../Config"
 //                            the model, because expansion is purely
 //                            presentational
 //
+// Each row ends with a HolderChip naming the holder the position was
+// saved with (AG, ST, ...); the name elides before it.
+//
 // Model schema: each element must expose `name`, `posX`, `posY`,
-// `posZ`, `posT`, `posR`. The axis fields use the `pos` prefix because
-// `x` and `y` collide with Item's built-in FINAL geometry properties —
-// QML rejects `required property real x` outright with "Cannot override
-// FINAL property". The page's `stagePositionsModel` in
-// CryoTempPrepPage provides exactly this shape.
+// `posZ`, `posT`, `posR`, `holder`, `holderTag` and `holderConfirm`.
+// The axis fields use the `pos` prefix because `x` and `y` collide with
+// Item's built-in FINAL geometry properties — QML rejects `required
+// property real x` outright with "Cannot override FINAL property". The
+// page's `stagePositionsModel` in CryoTempPrepPage provides exactly this
+// shape.
 
 Item {
 
@@ -84,6 +88,11 @@ Item {
             required property real posZ
             required property real posT
             required property real posR
+            // xT holder name ("" when not recorded), its tag, and
+            // whether it asks for confirmation (amber chip).
+            required property string holder
+            required property string holderTag
+            required property bool holderConfirm
 
             // Local expansion state — independent of selection.
             property bool expanded: false
@@ -139,10 +148,10 @@ Item {
                 Label {
                     id: nameLabel
                     anchors.left: parent.left
-                    anchors.right: parent.right
+                    anchors.right: holderChip.left
                     anchors.verticalCenter: parent.verticalCenter
                     anchors.leftMargin: 8
-                    anchors.rightMargin: 8
+                    anchors.rightMargin: 6
                     text: delegateRoot.name
                     font.pixelSize: AppConfig.pageBodyFontSize
                     color: AppConfig.universalForeground
@@ -155,6 +164,18 @@ Item {
                     ToolTip.timeout: AppConfig.toolTipTimeoutMs
 
                     HoverHandler { id: nameLabelHover }
+                }
+
+                // The holder the position was saved with; hover for
+                // its xT name.
+                HolderChip {
+                    id: holderChip
+                    anchors.right: parent.right
+                    anchors.rightMargin: 8
+                    anchors.verticalCenter: parent.verticalCenter
+                    holder: delegateRoot.holder
+                    tag: delegateRoot.holderTag
+                    needsConfirmation: delegateRoot.holderConfirm
                 }
 
                 MouseArea {

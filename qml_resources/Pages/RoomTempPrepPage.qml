@@ -35,7 +35,7 @@ import "../Components"
 //     it hasn't started yet.
 //
 //   • Switch enable rule: a switch is enabled while no workflow is
-//     running, OR while the activity is still in "idle" state during
+//     running, or while the activity is still in "idle" state during
 //     a run (hasn't started yet). Once an activity has begun or
 //     finished within a run, its switch locks until the workflow
 //     ends. The ActivityContainer's contentArea handles parameter

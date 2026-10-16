@@ -34,6 +34,17 @@ QtObject {
     readonly property string stageRemovePositionTitle: "Remove Position"
     readonly property string stageRemovePositionMessage: "Remove \"%1\" from the list?"
     readonly property string stageMoveErrorTitle: "Stage Move Error"
+    readonly property string stageMoveShortfallDialog: "The stage stopped short of \"%1\". The position may be outside the selected holder's limits. See the console log for details."
+    readonly property string stageMoveHolderErrorDialog: "The holder saved with \"%1\" could not be selected, so the stage did not move there. See the console log for details."
+        // Move To note for positions saved with a holder that asks first
+        // (HOLDERS_TO_CONFIRM in defaults.py); %1 is xT's holder name.
+    readonly property string stageMoveToHolderNote: "The holder changes to %1 and stays selected after the move."
+        // Holder chip (positions saved before holders were recorded) and
+        // the unsupported-holder dialog (%1 the selected holder, %2 the
+        // supported list from the controller).
+    readonly property string holderNotRecordedTooltip: "Holder not recorded. Update Position records the holder currently selected in Sample Exchange (AutoScript 4.14 or later)."
+    readonly property string holderNotSupportedTitle: "Holder Not Supported"
+    readonly property string holderNotSupportedDialog: "Positions can't be saved with the %1 holder selected. Select the holder for the loaded shuttle in Sample Exchange and try again.\n\nSupported holders: %2"
 
         // Cryo template dialogs (titles only; bodies are composed in QML or supplied by Python)
     readonly property string templateLoadSummaryTitle: "Template Loaded with Adjustments"
@@ -59,7 +70,7 @@ QtObject {
         // Activities
     readonly property string gisPurgeActivityTooltip: "Purges the Pt GIS for the specified duration."
     readonly property string homeStageActivityTooltip: "Performs a home stage procedure with rotation.\n\nThis procedure cannot be stopped once started; stopping it requires manual intervention."
-    readonly property string stagePositionsActivityTooltip: "Saved stage positions used by the GIS Deposition activities."
+    readonly property string stagePositionsActivityTooltip: "Saved stage positions used by the Sputter Coat and GIS Deposition activities. Each records the holder it was saved with."
     readonly property string gisDepositionActivityTooltip: "Deposits (condenses) material onto the grid with the GIS at the selected stage position."
     readonly property string removeActivityButtonTooltip: "Remove this activity from the list."
     readonly property string addSputterCoatActivityTooltip: "Add a sputter coat activity to the list."
@@ -76,10 +87,10 @@ QtObject {
                                                 + "This replaces the current activity list."
 
         // Stage positions activity
-    readonly property string stageAddPositionButtonTooltip: "Add the current stage position to the list."
+    readonly property string stageAddPositionButtonTooltip: "Add the current stage position and the selected holder to the list."
     readonly property string stageEditNameButtonTooltip: "Edit the name of the selected position."
-    readonly property string stageMoveToButtonTooltip: "Move the stage to the selected position."
-    readonly property string stageUpdatePositionButtonTooltip: "Overwrite the selected position with the current stage position."
+    readonly property string stageMoveToButtonTooltip: "Move the stage to the selected position. The holder it was saved with is selected first."
+    readonly property string stageUpdatePositionButtonTooltip: "Overwrite the selected position with the current stage position and the selected holder."
     readonly property string stageRemovePositionButtonTooltip: "Remove the selected position from the list."
 
         // Sputter coat activity
@@ -95,7 +106,7 @@ QtObject {
                                                                       + " s (the lamella sputtering default)."
 
         // Position-based activities (GIS deposition, sputter coat)
-    readonly property string positionLabelTooltip: "Stage position used for the activity."
+    readonly property string positionLabelTooltip: "Stage position used for the activity. The run selects the holder the position was saved with (shown beside it) before moving there."
     readonly property string gisDepositionDurationLabelTooltip: "How long the GIS valve stays open (s)."
 
         // Stage / Scan page
@@ -103,7 +114,7 @@ QtObject {
     readonly property string setScanRot0ButtonTooltip: "Set the scan rotation of the SEM and FIB to 0°."
     readonly property string setScanRot180ButtonTooltip: "Set the scan rotation of the SEM and FIB to 180°."
     readonly property string scanRotWithStageCheckBoxTooltip: "Scan rotates the SEM and FIB 180° after the stage rotates 180°."
-    readonly property string stageTiltWithRotCheckBoxTooltip: "Recommended for safe stage rotations. The stage tilts to 0° before rotation, then returns to its original tilt.\n\nIf Tilt After Rotation is enabled, the stage tilts to that angle instead."
+    readonly property string stageTiltWithRotCheckBoxTooltip: "Recommended for safe stage rotations. The stage tilts to 0° before rotation and stays at 0° afterwards.\n\nIf Tilt After Rotation is enabled, the stage tilts to that angle after rotating."
     readonly property string tiltAfterRotationCheckBoxTooltip: "Tilts the stage to the specified angle (deg.) after rotation.\n\nWith Zero Tilt Before Rotation enabled, the stage tilts to 0° before rotating; without it, the stage rotates at its current tilt."
     readonly property string seventeenLabelTooltip: "Set Tilt After Rotation to 17°."
     readonly property string thirtyFiveLabelTooltip: "Set Tilt After Rotation to 35°."
@@ -122,7 +133,7 @@ QtObject {
     readonly property string sputterCoatPortNameLabelTooltip: "The name of the GIS port used as the sputter coater (e.g. µCoater)."
     readonly property string bulkSputteringDefaultDurationLabelTooltip: "The default duration (s) for the Bulk Sputtering button in the Sputter Coat activity."
     readonly property string lamellaSputteringDefaultDurationLabelTooltip: "The default duration (s) for the Lamella Sputtering button in the Sputter Coat activity."
-    readonly property string zeroTiltBeforeGisDepositionLabelTooltip: "The stage is tilted to 0° before moving to the GIS deposition position."
+    readonly property string zeroTiltBeforeStageMovesLabelTooltip: "Before moving to a saved position, the stage tilts to 0°, moves X, Y, Z and rotation, then tilts to the position's tilt. When the position was saved with another holder, that holder is selected while the stage is flat. Applies to GIS Deposition, Sputter Coat, Move To, and Move Stage To Original Position."
     readonly property string moveStageToOriginalPositionLabelTooltip: "Move the stage back to its original position after all RT Prep or Cryo Prep activities complete successfully."
     readonly property string restoreOriginalPFIBVoltageAndCurrentLabelTooltip: "Restore the original PFIB high voltage, beam current, and on/off state after all Cryo Prep activities complete successfully."
     readonly property string restoreOriginalPFIBIonSpeciesLabelTooltip: "Restore the original PFIB ion species after all Cryo Prep activities complete successfully."

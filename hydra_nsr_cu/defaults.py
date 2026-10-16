@@ -86,15 +86,100 @@ MOVE_STAGE_TO_ORIGINAL_POSITION: bool = True
 RESTORE_ORIGINAL_PFIB_VOLTAGE_CURRENT: bool = False
 RESTORE_ORIGINAL_PFIB_ION_SPECIES: bool = False
 
-# --- GIS Deposition stage safety ---
-# When True, each GIS Deposition activity tilts the stage to zero
-# degrees before moving to its deposition position, so the XY/Z
-# translation happens from a flat orientation — reducing collision
-# risk when approaching positions that are awkward from a steep tilt.
-# Costs an extra stage move per deposition, so it's a setting:
-# workflows that hop between nearby positions (e.g. grid 1 -> grid 2)
-# can leave it off to skip the tilt.
-ZERO_TILT_BEFORE_GIS_DEPOSITION: bool = True
+# --- Stage move safety ---
+# When True, every move the app makes to a saved or captured position
+# (GIS Deposition's and Sputter Coat's targets, Move To, and Move Stage
+# To Original Position) is a staged move: tilt to 0°, move X/Y/Z/R
+# together, then tilt to the position's tilt. Rotation therefore
+# happens flat and the tilt is applied only once the stage is at the
+# target rotation; a single five-axis move gives no control over the
+# order in which xT applies rotation and tilt. When the move also
+# changes the holder (GIS Deposition, Sputter Coat, Move To), the stage
+# tilts to 0° under the current holder and the position's holder is
+# selected while the stage is flat. Costs up to two extra tilt moves
+# per position, so it's a setting: workflows that hop between nearby
+# positions (e.g. grid 1 -> grid 2) can leave it off. See
+# microscope/stage_moves.py.
+ZERO_TILT_BEFORE_STAGE_MOVES: bool = True
+
+# Arrival check. xT clamps a move that leaves the selected holder's
+# limits without raising an error (absolute_move returns and the stage
+# stops short), so every stage of a move is read back. The axes listed
+# in STAGE_MOVE_ARRIVAL_CHECK_AXES are compared with their targets; a
+# miss (a shortfall) fails the move: GIS Deposition and Sputter Coat
+# stop before the needle moves, Move To reports it, and the stage
+# restore is reported as not restored. Rotation and tilt are the
+# default: those are the axes the holder limits clamp, and their
+# encoders read back exactly. X/Y/Z deviations are logged with every
+# check but not enforced: on the instrument a Y miss of about 170 µm
+# appeared after a tilt with nothing clamped, so a hard X/Y/Z check
+# would stop good runs. Add an axis letter (x, y, z, r, t) once the
+# logged deviations show it is stable. STAGE_MOVE_ARRIVAL_CHECK off:
+# log only, never fail. The angle tolerance is in degrees because the
+# UI steps tilt in 0.1°.
+STAGE_MOVE_ARRIVAL_CHECK: bool = True
+STAGE_MOVE_ARRIVAL_CHECK_AXES: str = "rt"
+STAGE_MOVE_TOLERANCE_XYZ_M: float = 20e-6
+STAGE_MOVE_TOLERANCE_ANGLE_DEG: float = 0.05
+
+# --- Holders ---
+# The xT holder (microscope.specimen.stage.holder) is the selected
+# specimen holder, chosen by the operator in Sample Exchange. It governs
+# which stage positions Microscope Control permits: with the AutoGrid
+# shuttle holder selected, xT refuses moves to some positions that the
+# standard shuttle holder allows, and the reverse.
+#
+# A saved stage position records the holder selected when it was saved
+# (or last updated). GIS Deposition, Sputter Coat and Move To select
+# that holder before moving there; a position with no recorded holder
+# is reached under the holder already selected. Home Stage selects a
+# fixed holder (HOME_STAGE_HOLDER). A Cryo Prep run remembers the
+# holder selected at Start (the Start holder): GIS Deposition and
+# Sputter Coat reach an untagged position under it, and the run selects
+# it again when it ends — on every exit path, unlike the stage / PFIB
+# restores (see CPWorkflow._after_run). Move To leaves the position's
+# holder selected.
+#
+# Names are exactly as xT lists them in ``stage.holder.available_values``.
+
+# Holders a position can be saved with, and the tag the Stage Positions
+# list shows for each. Saving under any other holder is refused.
+SUPPORTED_HOLDERS: Dict[str, str] = {
+    "AutoGridShuttle35": "AG",
+    "CryoTEMStubShuttle": "ST",
+    "HPFCarrierShuttle3mm35": "HPF",
+    "HPFCarrierShuttle6mm35": "HPF",
+    "HPFSapphireShuttle3mm35": "HPF",
+    "HPFSapphireShuttle6mm35": "HPF",
+    "LeicaShuttle35": "LS",
+    "SpinMillHolder": "SM",
+}
+
+# Holders whose positions ask for confirmation: the Start dialog lists
+# the GIS Deposition and Sputter Coat positions saved with them, and
+# the Move To dialog says the holder changes. The other supported
+# holders are switched without a dialog.
+HOLDERS_TO_CONFIRM: Tuple[str, ...] = (
+    "CryoTEMStubShuttle",
+    "SpinMillHolder",
+)
+
+# The holder Home Stage runs under. The activity tilts the stage to 0°
+# under the holder selected at that moment, selects this holder, then
+# homes, whatever holder a preceding GIS Deposition or Sputter Coat
+# left selected. Start is refused when Microscope Control does not
+# list a holder an enabled activity selects.
+HOME_STAGE_HOLDER: str = "AutoGridShuttle35"
+
+# Holder-switch verification. Microscope Control may silently override
+# a holder selection it does not permit (the command is accepted, the
+# holder is then changed back), so every switch reads the holder back:
+# poll until it matches (up to HOLDER_SWITCH_TIMEOUT_S, every
+# HOLDER_SWITCH_POLL_S), then wait HOLDER_SWITCH_SETTLE_S and re-read
+# to catch a delayed override. See microscope/holder.py.
+HOLDER_SWITCH_TIMEOUT_S: float = 10.0
+HOLDER_SWITCH_POLL_S: float = 0.5
+HOLDER_SWITCH_SETTLE_S: float = 2.0
 
 
 # =========================================================================
@@ -270,6 +355,18 @@ DEFAULT_CRYO_ACTIVITY_LIST: List[Tuple[str, dict]] = [
 
 
 # =========================================================================
+# Stage Positions page
+# =========================================================================
+
+# Longest saved-position name accepted by add_from_current / rename.
+# Names are interpolated into status-bar text ("Moving stage to ..."),
+# so the cap keeps those lines readable. The name dialog enforces the
+# same limit at input time via AppConfig.qml's positionNameMaxLength —
+# keep the two in step.
+STAGE_POSITION_NAME_MAX_CHARS: int = 40
+
+
+# =========================================================================
 # Stage / Scan page
 # =========================================================================
 #
@@ -292,12 +389,12 @@ TILT_AFTER_ROTATION_ANGLE_DEG_DEFAULT: int = 17
 # user-saved override exists. SettingsController persists the user's
 # edits across sessions; these are the values that ship.
 #
-#   * Scan rotate after rotation: ON by default — the typical
+#   * Scan rotate after rotation: on by default — the typical
 #     workflow rotates the stage and flips the scan rotation in
 #     one gesture.
-#   * Zero tilt before rotation: OFF — users tilt manually if they
+#   * Zero tilt before rotation: off — users tilt manually if they
 #     need it.
-#   * Tilt after rotation: OFF — paired with the angle SpinBox; the
+#   * Tilt after rotation: off — paired with the angle SpinBox; the
 #     user opts in explicitly.
 SCAN_ROTATE_AFTER_ROTATION_DEFAULT: bool = True
 ZERO_TILT_BEFORE_ROTATION_DEFAULT: bool = False
@@ -360,13 +457,15 @@ STAGE_SAFE_RADIAL_RANGE_M: float = 8e-3   # 8 mm from chamber center
 # defaults in shipped code; flip one locally to exercise a path, then flip
 # it back.
 #
-# Reader contexts differ — these are NOT all read in the same place:
+# Reader contexts differ — these are not all read in the same place:
 #   * DEV_FORCE_SIMULATION is read by the entry point
 #     (hydra_nsr_cryo_utilities.py); it has no effect once a client
 #     (real or simulated) exists.
-#   * DEV_FORCE_UNLINKED / DEV_FORCE_STAGE_OUT_OF_RANGE are read ONLY by
-#     SimulatedStageOps (microscope/stage_ops.py) and have NO effect on
-#     the real StageOps facade.
+#   * DEV_FORCE_UNLINKED / DEV_FORCE_STAGE_OUT_OF_RANGE /
+#     DEV_FORCE_HOLDER_OVERRIDE / DEV_FORCE_STAGE_SHORTFALL /
+#     DEV_SIMULATED_HOLDERS / DEV_SIMULATED_INITIAL_HOLDER are read only
+#     by SimulatedStageOps (microscope/stage_ops.py) and have no effect
+#     on the real StageOps facade.
 #
 # DEV_FORCE_SIMULATION:
 #   Skip the microscope connection attempt entirely and start in
@@ -389,9 +488,41 @@ STAGE_SAFE_RADIAL_RANGE_M: float = 8e-3   # 8 mm from chamber center
 #   Home Stage, direct Stage Rotation). home() also resets to this
 #   position while the flag is set, so the state persists across Homes
 #   for repeated triggering.
+#
+# DEV_FORCE_HOLDER_OVERRIDE:
+#   Make the simulated stage behave like Microscope Control overriding
+#   a holder selection: set_holder() is accepted and the first readback
+#   shows the new holder, but the next readback reverts to the previous
+#   one. Exercises the "reverted" failure path of
+#   microscope/holder.py's select_holder() (GIS Deposition and Sputter
+#   Coat then fail with "holder selection failed"; the end-of-run holder
+#   restore reports "holder not restored"; Move To reports "Holder
+#   selection failed").
+#
+# DEV_FORCE_STAGE_SHORTFALL:
+#   Make every simulated absolute_move land short of its command (X by
+#   50 µm, tilt by 1°), the way xT clamps a move that leaves the
+#   selected holder's limits. Exercises the arrival check in
+#   microscope/stage_moves.py: GIS Deposition and Sputter Coat end with
+#   "stage did not reach position", Move To with "Stage stopped short
+#   of ...", and the stage restore reports "stage not restored". The X
+#   miss shows up in the deviation log line; the tilt miss trips the
+#   check.
+#
+# DEV_SIMULATED_HOLDERS:
+#   The simulated stage's ``available_holders`` list: every supported
+#   holder plus an unsupported generic entry, so the "Holder Not
+#   Supported" path can be exercised by selecting it.
+#
+# DEV_SIMULATED_INITIAL_HOLDER:
+#   The holder the simulated stage starts with.
 DEV_FORCE_SIMULATION: bool = False
 DEV_FORCE_UNLINKED: bool = False
 DEV_FORCE_STAGE_OUT_OF_RANGE: bool = False
+DEV_FORCE_HOLDER_OVERRIDE: bool = False
+DEV_FORCE_STAGE_SHORTFALL: bool = False
+DEV_SIMULATED_HOLDERS: List[str] = [*SUPPORTED_HOLDERS, "GenericHolder"]
+DEV_SIMULATED_INITIAL_HOLDER: str = "AutoGridShuttle35"
 
 # Radial distance (metres) used to seed the stage position when
 # DEV_FORCE_STAGE_OUT_OF_RANGE is set. Chosen comfortably past

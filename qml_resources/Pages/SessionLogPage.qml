@@ -190,7 +190,7 @@ Item {
 
                     id: delegateRoot
 
-                    // Roles exposed by SessionLogModel. One row IS one
+                    // Roles exposed by SessionLogModel. One row is one
                     // session — activities are nested as a list under
                     // ``activities``. No ``kind`` discriminator, no
                     // activity-only roles at this level; the activity
@@ -215,7 +215,7 @@ Item {
                     // ``activities.some(...)`` exception scan runs
                     // once per row update instead of twice.
                     //
-                    // Precedence: ``isRunning`` is checked BEFORE
+                    // Precedence: ``isRunning`` is checked before
                     // ``isInterrupted``. A live session also has
                     // ``ended_at === null`` (so ``isInterrupted`` is
                     // true at the disk level); intercepting the
@@ -383,7 +383,7 @@ Item {
 
                                     // Focus-gated binding: the field's text
                                     // tracks the model's notes value only
-                                    // when the user is NOT actively editing.
+                                    // when the user is not actively editing.
                                     // Without this, an activity arriving
                                     // mid-workflow triggers row-level
                                     // dataChanged, which would re-evaluate

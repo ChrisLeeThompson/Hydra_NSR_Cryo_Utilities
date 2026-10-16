@@ -383,11 +383,13 @@ def template_dict_from_position(
 ) -> Dict[str, Any]:
     """Convert a saved position into a template-file dict.
 
-    Stores name + coordinates only; the machine-local ``id`` is
+    Stores name, coordinates and holder; the machine-local ``id`` is
     dropped because ids mean nothing on another machine and are minted
     fresh on import. Coordinates stay in AutoScript SI units (meters,
     radians) — the same units the runtime and QSettings use, so a
-    round-trip through a template is lossless.
+    round-trip through a template is lossless. The holder is xT's name
+    ("" when not recorded); templates written before holders were
+    recorded have no ``holder`` key and import without one.
     """
     return {
         "name": position.name,
@@ -396,6 +398,7 @@ def template_dict_from_position(
         "z": position.z,
         "r": position.r,
         "t": position.t,
+        "holder": position.holder,
     }
 
 

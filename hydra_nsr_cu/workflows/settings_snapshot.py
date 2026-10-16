@@ -33,8 +33,10 @@ Shared between RT and CP
 Both :class:`RTWorkflow` and :class:`CPWorkflow` capture the same
 dataclass — RT just doesn't read the two ``restore_pfib_*`` fields
 (its only PFIB-touching activity is GIS Purge, and PFIB-state restore
-is a CP-only feature). A single shape avoids divergence if a future
-RT activity grows the same dependency.
+is a CP-only feature). Both read ``zero_tilt_before_stage_moves`` for
+the end-of-run stage restore. A single shape avoids divergence if a
+future RT activity grows the same dependency. The holder selected at
+Start is not a setting; the CP workflow captures it itself.
 """
 from __future__ import annotations
 
@@ -63,7 +65,7 @@ class WorkflowSettingsSnapshot:
     move_stage_to_original: bool
     restore_pfib_voltage_current: bool
     restore_pfib_ion_species: bool
-    zero_tilt_before_gis_deposition: bool
+    zero_tilt_before_stage_moves: bool
 
     @classmethod
     def from_settings(
@@ -80,7 +82,7 @@ class WorkflowSettingsSnapshot:
                 settings.restoreOriginalPFIBVoltageAndCurrent
             ),
             restore_pfib_ion_species=settings.restoreOriginalPFIBIonSpecies,
-            zero_tilt_before_gis_deposition=(
-                settings.zeroTiltBeforeGisDeposition
+            zero_tilt_before_stage_moves=(
+                settings.zeroTiltBeforeStageMoves
             ),
         )

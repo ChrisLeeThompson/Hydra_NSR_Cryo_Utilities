@@ -16,7 +16,7 @@ import "../Js"
 // drawn to assist with visualizing milling angles as they relate to the
 // SEM, FIB, and GIS positions.
 //
-// Layout: the heading, description, and calculator are STATIC (the
+// Layout: the heading, description, and calculator are static (the
 // standard page header pattern, as on LiftoutCalcPage); only the two
 // figures live inside a ScrollView, which takes the remaining vertical
 // space. The calculator therefore stays visible while either figure is

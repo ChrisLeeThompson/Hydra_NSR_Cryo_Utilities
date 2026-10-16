@@ -7,6 +7,7 @@ SputterCoat 1.0 SputterCoat.qml
 GISDeposition 1.0 GISDeposition.qml
 StagePositions 1.0 StagePositions.qml
 StagePositionsListView 1.0 StagePositionsListView.qml
+HolderChip 1.0 HolderChip.qml
 CustomSpinBox 1.0 CustomSpinBox.qml
 ToolTippedLabel 1.0 ToolTippedLabel.qml
 LiftoutCalculator 1.0 LiftoutCalculator.qml

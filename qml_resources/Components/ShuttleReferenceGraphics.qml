@@ -16,9 +16,9 @@ import "../Js"
 // * Horizontal stage-plane reference lines (tilt 0) with the "0" label
 //   at the right
 // * The tilt gauge: a protractor of the stage plane itself.
-//   - Right arc, screen 0..+10: path of the stage plane's RIGHT arm
+//   - Right arc, screen 0..+10: path of the stage plane's right arm
 //     for tilts 0..-10 (negative tilt raises the FIB side)
-//   - Left arc, screen 120..180: path of the stage plane's LEFT arm
+//   - Left arc, screen 120..180: path of the stage plane's left arm
 //     for tilts 0..+60
 //   Tick marks for negative tilt values sit on the right arc, positive
 //   values on the left arc (see tiltTickScreenAngleDeg()).
@@ -29,13 +29,13 @@ import "../Js"
 // stage preset (rotation regime + tilt) from
 // MillingAngleCalculations.beamPreset().
 //
-// The figure has TWO vertical reference heights:
+// The figure has two vertical reference heights:
 // * centerY - the shuttle fiducial (rotation point); the SEM/FIB/GIS
 //   beam lines radiate from here.
 // * gaugeCenterY - the shuttle base height at tilt 0; the tilt gauge
 //   (arcs, ticks, horizontals) is centered here so the 0-degree line is
 //   collinear with the shuttle base. Note the gauge center is below the
-//   rotation point: at nonzero tilt the base remains PARALLEL to the
+//   rotation point: at nonzero tilt the base remains parallel to the
 //   indicated direction but does not pass through the gauge center.
 //
 // All instrument angles come from MillingAngleCalculations; this file
@@ -79,7 +79,7 @@ Item {
         - AppConfig.millingFigureShuttleImageHeight
             * (1 - AppConfig.millingFigureFiducialFracY)
 
-    // Tick marks as {value, angle} pairs. Tilt 0 is marked on BOTH arms
+    // Tick marks as {value, angle} pairs. Tilt 0 is marked on both arms
     // of the stage plane (right and left), each labeled "0"; all other
     // values appear once, on the arm given by tiltTickScreenAngleDeg().
     readonly property var _tickMarks: {
@@ -123,7 +123,7 @@ Item {
             var beamColor = AppConfig.millingFigureBeamLineColor
 
             // --- Beam lines ---
-            // Each line grows INWARD from the shared label arc: outer
+            // Each line grows inward from the shared label arc: outer
             // end at (labelRadius - labelOffset), reaching toward the
             // center by its own length. SEM and FIB are equal length;
             // GIS is a shorter stub, but its label stays on the arc.

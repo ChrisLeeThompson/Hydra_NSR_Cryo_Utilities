@@ -7,12 +7,23 @@ high-level operations to QML (``add_from_current``,
 position with model mutation. QML never reads the stage directly —
 all coordinate-producing operations go through this controller.
 
-``move_to(position_id)`` runs the blocking ``absolute_move()`` on a
-short-lived :class:`QThread` worker; the GUI thread observes it through
-``isMoving``, ``moveStarted``, ``moveFinished``, and ``statusUpdated``.
-A failed move is logged with a full traceback and surfaced as
-``moveFinished(success=False)``; the message itself is not exposed —
-QML opens a generic "Stage Move Error" dialog pointing to the logs.
+Saving or updating a position also records the xT holder selected at
+that moment. A holder outside ``defaults.SUPPORTED_HOLDERS`` refuses
+the save (``holderNotSupported``); a failed holder read saves the
+position without one.
+
+``move_to(index)`` runs the move on a short-lived :class:`QThread`
+worker; the GUI thread observes it through ``isMoving``,
+``moveStarted``, ``moveFinished``, and ``statusUpdated``. The move is a
+staged move with arrival checks (see ``microscope/stage_moves.py``),
+staged or not per the Zero Tilt Before Stage Moves setting read live at
+dispatch. When the position has a recorded holder the worker selects it
+— while the stage is flat when the move is staged — and leaves it
+selected afterwards. A failed move is logged with a full traceback and
+surfaced as ``moveFinished(success=False, name, reason)``; the message
+itself is not exposed — QML opens a generic "Stage Move Error" dialog,
+or its shortfall variant when the stage stopped short, pointing to the
+console log.
 
 A Move To is gated by the pre-start check system (today a single
 :class:`StagePositionWithinSafeRangeCheck`), mirroring stage rotation
@@ -44,6 +55,18 @@ from PySide6.QtCore import (
 
 from .. import defaults
 from ..microscope import MicroscopeClientLike
+from ..microscope.holder import (
+    SHORTFALL_HOLDER_HINT,
+    HolderSwitchError,
+    is_supported_holder,
+    select_holder,
+)
+from ..microscope.stage_moves import (
+    StageMoveShortfall,
+    StageTarget,
+    staged_move,
+    tilt_to_zero,
+)
 from ..pre_start_checks import (
     PreStartCheck,
     gather_snapshot,
@@ -51,6 +74,8 @@ from ..pre_start_checks import (
     to_dialog_items,
 )
 from ..pre_start_checks.checks import StagePositionWithinSafeRangeCheck
+from ..settings.settings_controller import SettingsController
+from ..status_text import SEE_LOG, shorten
 from .positions_model import (
     SavedStagePosition,
     StagePositionsModel,
@@ -78,71 +103,116 @@ class _PendingMove:
     Frozen so the resume path can't mutate the captured state.
 
     Attributes:
-        target: The resolved ``StagePosition`` (real or simulated) for
-            the ``absolute_move`` call. Typed as ``object`` because the
-            two facades return distinct concrete types.
+        target: The resolved :class:`StageTarget` for the staged move.
         position_name: User-visible name, used in status messages.
         position_id: Opaque id of the saved row, used only in logs.
+        holder: Holder name to select before the move: the holder the
+            position was saved with ("" = not recorded, leave the
+            holder alone).
         confirmed_check_types: Check types the user is being asked to
             confirm; carried into
             :attr:`StagePositionsController._confirmed_check_types` on
             accept (populated for parity, not consulted mid-run).
     """
-    target: object
+    target: StageTarget
     position_name: str
     position_id: str
+    holder: str = ""
     confirmed_check_types: FrozenSet[Type[PreStartCheck]] = frozenset()
 
 
 class _StageMoveWorker(QObject):
-    """Worker that performs a single stage absolute_move on a worker thread.
+    """Worker that performs one Move To on a worker thread.
 
     Single-shot — destroyed via ``deleteLater`` once :attr:`finished`
     has been emitted. Mirrors the lifecycle of :class:`_ConnectWorker`
     in :mod:`app_controller`.
 
-    The worker holds a reference to the live stage ops object and the
-    target position; it does not need a reference back to the controller.
-    Status text is emitted at the start of the move so the StatusBar can
-    show "Moving stage to: <name>..."; the controller decides what (if
-    anything) to emit on completion.
+    The move is a staged move with arrival checks (see
+    ``microscope/stage_moves.py``). When ``holder`` is set (the holder
+    the position was saved with) the worker selects it before moving —
+    after tilting the stage flat under the current holder when the move
+    is staged, so the holder changes only while the stage is flat — and
+    leaves it selected afterwards. Status text is emitted per stage;
+    the controller decides what to emit on completion.
     """
 
-    # finished(success: bool, position_name: str). The error path is
-    # logged with full traceback inside run(); we don't propagate the
-    # error message because QML's user-facing response is a generic
-    # dialog. The position_name lets the controller emit a "Stage
-    # moved to: X" status message on success.
-    finished = Signal(bool, str)
+    # finished(success, position_name, reason). ``reason`` is "" on
+    # success, "shortfall" when an arrival check failed, "holder" when
+    # the position's holder could not be selected, "error" otherwise;
+    # the traceback is logged inside run() and the message is not
+    # propagated because QML's response is a dialog pointing to the
+    # console log.
+    finished = Signal(bool, str, str)
 
-    # statusUpdated(text). Emitted at the start of the move so the
-    # StatusBar can show progress.
+    # statusUpdated(text). One line per stage of the move.
     statusUpdated = Signal(str)
 
-    def __init__(self, stage_ops, position, position_name: str) -> None:
+    def __init__(
+        self,
+        stage_ops,
+        target: StageTarget,
+        position_name: str,
+        *,
+        staged: bool,
+        holder: str,
+    ) -> None:
         super().__init__()
         self._stage = stage_ops
-        self._position = position
+        self._target = target
         self._position_name = position_name
+        self._staged = bool(staged)
+        self._holder = str(holder)
+
+    def _say(self, text: str) -> None:
+        self.statusUpdated.emit(shorten(text))
 
     @Slot()
     def run(self) -> None:
-        """Perform the move; emit finished(success) on completion."""
+        """Tilt flat (staged), select the position's holder, then move."""
+        success = False
+        reason = "error"
         try:
-            self.statusUpdated.emit(
-                f"Moving stage to: {self._position_name}..."
-            )
             logger.info(
-                "Stage move worker: moving to %r", self._position
+                "Stage move worker: moving to %r (staged=%s, holder=%r)",
+                self._target, self._staged, self._holder,
             )
-            self._stage.absolute_move(self._position)
+            if self._holder:
+                # Leave under the current holder, arrive under the
+                # position's: staged, the stage tilts flat first and
+                # the staged move's own tilt stage is then skipped.
+                if self._staged:
+                    tilt_to_zero(self._stage, on_status=self._say)
+                try:
+                    select_holder(
+                        self._stage, self._holder, on_status=self._say,
+                    )
+                except HolderSwitchError:
+                    raise
+                except Exception as exc:
+                    # A refused name or a server error reads like a
+                    # selection that did not take effect.
+                    raise HolderSwitchError(
+                        f"holder {self._holder!r} could not be selected"
+                    ) from exc
+            staged_move(
+                self._stage, self._target, staged=self._staged,
+                name=self._position_name, on_status=self._say,
+            )
             logger.info("Stage move worker: move complete")
-            self.finished.emit(True, self._position_name)
-        except Exception:
+            success, reason = True, ""
+        except StageMoveShortfall:
+            logger.exception("Stage move worker: stage stopped short")
+            logger.warning("Stage move worker: %s", SHORTFALL_HOLDER_HINT)
+            reason = "shortfall"
+        except HolderSwitchError:
             logger.exception(
-                "Stage move worker: absolute_move raised"
+                "Stage move worker: holder %r was not selected", self._holder,
             )
-            self.finished.emit(False, self._position_name)
+            reason = "holder"
+        except Exception:
+            logger.exception("Stage move worker: move raised")
+        self.finished.emit(success, self._position_name, reason)
 
 
 class StagePositionsController(QObject):
@@ -151,9 +221,15 @@ class StagePositionsController(QObject):
     # Emitted as the move starts and finishes. AppController listens to
     # these to update its global runningWorkflowId.
     moveStarted = Signal()
-    # moveFinished(success: bool, position_name: str). On failure, QML opens its error
-    # dialog; on success, it just clears the activity state to idle.
-    moveFinished = Signal(bool, str)
+    # moveFinished(success, position_name, reason). ``reason`` is "",
+    # "shortfall", "holder" or "error". On failure QML opens its error
+    # dialog (the shortfall and holder variants name the position or
+    # holder); on success it just clears the activity state to idle.
+    moveFinished = Signal(bool, str, str)
+    # holderNotSupported(holder). Add / Update Position refused because
+    # the selected holder is not in defaults.SUPPORTED_HOLDERS; QML
+    # opens the "Holder Not Supported" dialog naming it.
+    holderNotSupported = Signal(str)
 
     # Status text for the StatusBar — same shape as WorkflowRunner.
     statusUpdated = Signal(str)
@@ -176,10 +252,15 @@ class StagePositionsController(QObject):
     def __init__(
         self,
         microscope: MicroscopeClientLike,
+        settings: SettingsController,
         parent: Optional[QObject] = None,
     ) -> None:
         super().__init__(parent)
         self._microscope = microscope
+        # Read live at dispatch time (like the Stage / Scan rotation
+        # reads its settings): Zero Tilt Before Stage Moves decides
+        # whether a Move To is staged.
+        self._settings = settings
 
         self._model = StagePositionsModel(parent=self)
 
@@ -226,14 +307,66 @@ class StagePositionsController(QObject):
         """True while a Move To is in flight."""
         return self._is_moving
 
+    @Property(str, constant=True)
+    def supportedHoldersText(self) -> str:
+        """The supported holder names, comma-separated, for dialog text."""
+        return ", ".join(defaults.SUPPORTED_HOLDERS)
+
+    # --- Holder capture -----------------------------------------------------
+
+    def _read_holder(self) -> Optional[str]:
+        """The holder selected in xT, or None when it cannot be read."""
+        try:
+            return str(self._microscope.stage.holder)
+        except Exception:
+            logger.exception("Stage positions: failed to read the holder")
+            return None
+
+    def _refuse_unsupported(self, holder: Optional[str]) -> bool:
+        """Emit :attr:`holderNotSupported` and return True for a bad holder.
+
+        A failed read (``None``) is not a refusal: the position is then
+        saved without a holder.
+        """
+        if holder is None or is_supported_holder(holder):
+            return False
+        logger.warning(
+            "Stage positions: holder %r is not supported; position not saved",
+            holder,
+        )
+        self.holderNotSupported.emit(holder)
+        return True
+
+    @Slot(result=str)
+    def unsupported_holder(self) -> str:
+        """The selected holder when a position cannot be saved with it.
+
+        QML calls this before opening the Add Position name dialog or
+        the Update Position confirmation, so the operator sees "Holder
+        Not Supported" first. "" when the holder is supported or cannot
+        be read (the save itself then records no holder).
+        """
+        holder = self._read_holder()
+        if holder is None or is_supported_holder(holder):
+            return ""
+        return holder
+
     # --- Add / update / rename / remove (synchronous) ----------------------
 
     @Slot(str, result=bool)
     def add_from_current(self, name: str) -> bool:
-        """Read the current stage position and add it as a new saved row."""
+        """Add the current stage position and holder as a new saved row."""
         name = name.strip()
         if not name:
             logger.warning("Stage positions: refusing to add unnamed position")
+            return False
+        if len(name) > defaults.STAGE_POSITION_NAME_MAX_CHARS:
+            # The name dialog caps input at the same length; this is the
+            # backend half of that guard (names reach status text).
+            logger.warning(
+                "Stage positions: refusing to add over-long name (%d chars)",
+                len(name),
+            )
             return False
         # Enforce name uniqueness in the backend, not just in the QML
         # dialog: get_record_by_name / find_index_by_name assume the first
@@ -244,6 +377,10 @@ class StagePositionsController(QObject):
             logger.warning(
                 "Stage positions: refusing to add duplicate name %r", name
             )
+            return False
+
+        holder = self._read_holder()
+        if self._refuse_unsupported(holder):
             return False
 
         try:
@@ -260,17 +397,27 @@ class StagePositionsController(QObject):
             z=getattr(pos, "z", 0.0),
             r=getattr(pos, "r", 0.0),
             t=getattr(pos, "t", 0.0),
+            holder=holder or "",
         )
         self._model.add_record(record)
         self._save_to_settings()
         logger.info(
-            "Stage positions: added %r (id=%s)", record.name, record.id
+            "Stage positions: added %r (id=%s, holder=%r)",
+            record.name, record.id, record.holder,
         )
+        if holder is None:
+            self.statusUpdated.emit(
+                shorten(f"Position saved without holder {SEE_LOG}")
+            )
         return True
 
     @Slot(int, result=bool)
     def update_from_current(self, index: int) -> bool:
-        """Update the row at ``index`` with the current stage position."""
+        """Update the row at ``index`` with the current position and holder."""
+        holder = self._read_holder()
+        if self._refuse_unsupported(holder):
+            return False
+
         try:
             pos = self._microscope.stage.current_position
         except Exception:
@@ -279,6 +426,9 @@ class StagePositionsController(QObject):
             )
             return False
 
+        # The holder always follows the new coordinates: they were
+        # captured under it. A failed read clears it rather than keep a
+        # holder the coordinates may not have been captured under.
         ok = self._model.update_coordinates(
             index,
             x=getattr(pos, "x", 0.0),
@@ -286,14 +436,19 @@ class StagePositionsController(QObject):
             z=getattr(pos, "z", 0.0),
             r=getattr(pos, "r", 0.0),
             t=getattr(pos, "t", 0.0),
+            holder=holder or "",
         )
         if ok:
             self._save_to_settings()
             rec = self._model.get(index)
             logger.info(
-                "Stage positions: updated coordinates for %r (id=%s)",
-                rec.get("name", "?"), rec.get("id", "?"),
+                "Stage positions: updated %r (id=%s, holder=%r)",
+                rec.get("name", "?"), rec.get("id", "?"), rec.get("holder", ""),
             )
+            if holder is None:
+                self.statusUpdated.emit(
+                    shorten(f"Position updated without holder {SEE_LOG}")
+                )
         return ok
 
     @Slot(int, str, result=bool)
@@ -303,7 +458,13 @@ class StagePositionsController(QObject):
         if not new_name:
             logger.warning("Stage positions: refusing to rename to empty string")
             return False
-        # Reject a collision with a DIFFERENT row (renaming a row to its
+        if len(new_name) > defaults.STAGE_POSITION_NAME_MAX_CHARS:
+            logger.warning(
+                "Stage positions: refusing to rename row %d to an over-long "
+                "name (%d chars)", index, len(new_name),
+            )
+            return False
+        # Reject a collision with a different row (renaming a row to its
         # own current name is a harmless no-op and stays allowed). Mirrors
         # the uniqueness guard in add_from_current — see its comment.
         existing = self._model.find_index_by_name(new_name)
@@ -344,6 +505,10 @@ class StagePositionsController(QObject):
         Observe via ``isMoving``, ``moveStarted``, ``moveFinished``,
         and ``statusUpdated``.
 
+        The worker selects the holder the position was saved with and
+        leaves it selected; a position with no recorded holder is
+        reached under the holder already selected.
+
         Tri-state dispatch via the pre-start check system —
         mirrors :meth:`StageScanController.start_rotation`:
 
@@ -382,19 +547,18 @@ class StagePositionsController(QObject):
             return
         rec = SavedStagePosition.from_dict(rec_dict)
 
-        # Construct the target position via the StageOps factory. Real
-        # ops returns autoscript's StagePosition; simulated returns
-        # SimulatedStagePosition. Either is accepted by the matching
-        # absolute_move.
+        # All five axes are required; a malformed row must not move
+        # anything.
         try:
-            target = self._microscope.stage.make_position(
-                x=rec.x, y=rec.y, z=rec.z, r=rec.r, t=rec.t,
-            )
-        except Exception:
+            target = StageTarget.from_position(rec)
+        except ValueError:
             logger.exception(
-                "Stage move: could not construct target StagePosition"
+                "Stage move: saved position %r is not a complete target",
+                rec.name,
             )
             return
+
+        holder = rec.holder
 
         # --- Pre-start check pass ---
         # Mirrors :meth:`StageScanController.start_rotation` (rule
@@ -438,6 +602,7 @@ class StagePositionsController(QObject):
                 target=target,
                 position_name=rec.name,
                 position_id=rec.id,
+                holder=holder,
                 confirmed_check_types=summary.needs_confirmation_types,
             )
             logger.info(
@@ -455,6 +620,7 @@ class StagePositionsController(QObject):
             target=target,
             position_name=rec.name,
             position_id=rec.id,
+            holder=holder,
         )
 
     def _move_pre_start_checks(self) -> List[PreStartCheck]:
@@ -517,14 +683,16 @@ class StagePositionsController(QObject):
             target=pending.target,
             position_name=pending.position_name,
             position_id=pending.position_id,
+            holder=pending.holder,
         )
 
     def _spawn_move_worker(
         self,
         *,
-        target: object,
+        target: StageTarget,
         position_name: str,
         position_id: str,
+        holder: str = "",
     ) -> None:
         """Construct and start the move thread and worker.
 
@@ -532,20 +700,24 @@ class StagePositionsController(QObject):
         :meth:`respondToConfirmation` on the accept path. Sets up
         the worker / thread / signal wiring, flips
         :attr:`isMoving` to True, emits :attr:`moveStarted`, and
-        starts the thread.
+        starts the thread. The Zero Tilt Before Stage Moves setting
+        is read here, on the GUI thread, and handed to the worker.
 
         Pre-condition: ``self._is_moving is False``,
         ``self._move_thread is None``, and ``self._pending_move
         is None``.
         """
+        staged = bool(self._settings.zeroTiltBeforeStageMoves)
         # Spin up the worker thread. Same pattern as the connect thread
         # in app_controller.py — see there for detailed comments on
         # the deleteLater chain and reference-management.
         thread = QThread()
         worker = _StageMoveWorker(
             stage_ops=self._microscope.stage,
-            position=target,
+            target=target,
             position_name=position_name,
+            staged=staged,
+            holder=holder,
         )
         worker.moveToThread(thread)
 
@@ -565,22 +737,41 @@ class StagePositionsController(QObject):
         self.moveStarted.emit()
 
         logger.info(
-            "Stage move: dispatching to %r (id=%s)",
-            position_name, position_id,
+            "Stage move: dispatching to %r (id=%s, staged=%s, holder=%r)",
+            position_name, position_id, staged, holder,
         )
         thread.start()
 
-    @Slot(bool, str)
-    def _on_move_finished(self, success: bool, position_name: str) -> None:
-        """Receive the worker's final result on the GUI thread."""
+    @Slot(bool, str, str)
+    def _on_move_finished(
+        self,
+        success: bool,
+        position_name: str,
+        reason: str,
+    ) -> None:
+        """Receive the worker's final result on the GUI thread.
+
+        Composes the final status line and emits :attr:`moveFinished`.
+        """
         self._set_is_moving(False)
         if success:
-            self.statusUpdated.emit(f"Stage moved to: {position_name}")
+            text = f"Stage moved to: {position_name}"
             logger.info("Stage move: complete")
+        elif reason == "shortfall":
+            text = f"Stage stopped short of {position_name}"
+            logger.error("Stage move stopped short (see console log for details)")
+        elif reason == "holder":
+            text = "Holder selection failed"
+            logger.error(
+                "Stage move: holder not selected; move to the position not made"
+            )
         else:
-            self.statusUpdated.emit("Stage move failed (see console log)")
+            text = "Stage move failed"
             logger.error("Stage move failed (see console log for details)")
-        self.moveFinished.emit(success, position_name)
+        if not success:
+            text += f" {SEE_LOG}"
+        self.statusUpdated.emit(shorten(text))
+        self.moveFinished.emit(success, position_name, reason)
 
     @Slot()
     def _on_move_thread_finished(self) -> None:
@@ -646,19 +837,23 @@ class StagePositionsController(QObject):
         Policy (never destructive — an existing position is never
         overwritten or removed):
 
-        * **Coordinates already present** (some saved position has
-          identical coordinates, whatever its name) -> reused, nothing
-          added. This is what makes re-loading the same template
-          idempotent: an already-imported copy matches on coordinates,
-          so it is reused rather than duplicated. It also avoids stacking
-          redundant positions at one physical spot.
-        * **New coordinates, unused name** -> added as-is (fresh id). No
+        * **Position already present** (some saved position has
+          identical coordinates and the same holder, whatever its
+          name) -> reused, nothing added. This is what makes re-loading
+          the same template idempotent: an already-imported copy
+          matches, so it is reused rather than duplicated. It also
+          avoids stacking redundant positions at one physical spot. A
+          template position with no recorded holder (older templates)
+          matches on coordinates alone.
+        * **New position, unused name** -> added as-is (fresh id). No
           issue; appearing in the list is the expected outcome.
-        * **New coordinates, name already taken** -> imported under a
+        * **New position, name already taken** -> imported under a
           unique ``"<name> (imported)"`` name (``(imported 2)`` etc. if
           needed) so the user keeps both. An issue records the rename.
+          Same coordinates under a different holder count as a new
+          position: the holder decides what xT lets the stage reach.
 
-        Coordinate match takes precedence over the name-collision rename
+        A position match takes precedence over the name-collision rename
         precisely so the second load of a renamed import is a no-op.
 
         Persists once at the end if anything was added.
@@ -675,13 +870,13 @@ class StagePositionsController(QObject):
         added = 0
 
         for p in positions:
-            coord_match = next(
-                (rec for rec in current if self._coords_equal(rec, p)),
+            match = next(
+                (rec for rec in current if self._same_position(rec, p)),
                 None,
             )
-            if coord_match is not None:
+            if match is not None:
                 # This exact position already exists (any name) — reuse.
-                name_map[p.name] = coord_match.id
+                name_map[p.name] = match.id
                 continue
             if p.name in taken:
                 # Same name, new coordinates — import under a fresh,
@@ -697,6 +892,7 @@ class StagePositionsController(QObject):
                 id=_new_id(),
                 name=final_name,
                 x=p.x, y=p.y, z=p.z, r=p.r, t=p.t,
+                holder=p.holder,
             )
             self._model.add_record(new_rec)
             current.append(new_rec)
@@ -726,6 +922,20 @@ class StagePositionsController(QObject):
         return (
             a.x == b.x and a.y == b.y and a.z == b.z
             and a.r == b.r and a.t == b.t
+        )
+
+    @classmethod
+    def _same_position(
+        cls, local: SavedStagePosition, incoming: SavedStagePosition,
+    ) -> bool:
+        """True when an incoming template position is already saved.
+
+        Coordinates must match exactly (see :meth:`_coords_equal`) and
+        so must the holder, unless the incoming position has none
+        recorded (an older template), which matches on coordinates.
+        """
+        return cls._coords_equal(local, incoming) and (
+            not incoming.holder or incoming.holder == local.holder
         )
 
     @staticmethod

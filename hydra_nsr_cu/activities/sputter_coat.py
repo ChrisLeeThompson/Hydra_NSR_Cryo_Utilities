@@ -9,16 +9,27 @@ Sequence:
 1. Validate the configured pattern file (exists, is a file, ``.ptf``).
 2. Resolve the coater GIS port (looked up by name from settings).
 3. Verify Z is linked to the free working distance.
-4. Tilt the stage to zero, then move to the saved sputter-coat position.
-5. Set ion species, turn on the ion beam, set high voltage and current.
-6. Insert the coater GIS needle — always retracted before the activity
+4. Select the xT holder the position needs (``required_holder``: the
+   holder the position was saved with, else the Start holder), verified
+   by readback — Microscope Control refuses moves to positions outside
+   the selected holder's limits. With a staged move the stage first
+   tilts to 0° under the holder selected now, so the holder changes
+   while the stage is flat.
+5. Move the stage to the saved sputter-coat position: a staged move
+   (tilt to 0°, move X/Y/Z/R, tilt to the position's tilt) when
+   ``staged`` is set, one five-axis move otherwise. Every stage ends
+   with an arrival check; a shortfall ends the activity before the
+   needle moves. See ``microscope/stage_moves.py``.
+6. Set ion species, turn on the ion beam, set high voltage and current.
+7. Insert the coater GIS needle — always retracted before the activity
    returns.
-7. Set the ion-beam HFW, parse the ``.ptf``, clear existing patterns,
+8. Set the ion-beam HFW, parse the ``.ptf``, clear existing patterns,
    and create and configure the polygon pattern.
-8. Run the pattern for the configured duration (interruptible
+9. Run the pattern for the configured duration (interruptible
    per-second loop). Patterning is always stopped and patterns cleared
    before the activity returns.
-9. Retract the coater GIS, then per-second interruptible chamber recovery.
+10. Retract the coater GIS, then per-second interruptible chamber
+    recovery.
 
 Cleanup mirrors :class:`GISDepositionService`'s nested try/finally:
 the outer block owns the needle, the inner block owns the patterning
@@ -29,7 +40,7 @@ beam-on state but does not undo them itself (in a multi-coat sequence,
 restoring between coats would revert state about to be set again);
 capture and restore happen at the workflow level via the
 PFIBConditionsRecorder. The activity receives target coordinates
-already resolved to a :class:`StagePosition`; the runner resolves the
+already resolved to a :class:`StageTarget`; the runner resolves the
 position id before the run starts.
 """
 from __future__ import annotations
@@ -42,14 +53,22 @@ from typing import Any, Dict, List
 
 from .. import defaults
 from ..microscope.gis_ops import GISOpsLike
+from ..microscope.holder import SHORTFALL_HOLDER_HINT, select_holder
 from ..microscope.ion_beam_ops import IonBeamOpsLike, resolve_plasma_gas_enum
 from ..microscope.patterning_ops import PatterningOpsLike
+from ..microscope.stage_moves import (
+    StageMoveShortfall,
+    StageTarget,
+    staged_move,
+    tilt_to_zero,
+)
 from ..microscope.stage_ops import StageOpsLike
 from ..pre_start_checks import PreStartCheck
 from ..pre_start_checks.checks import (
     StagePositionWithinSafeRangeCheck,
     ZLinkedToFreeWorkingDistanceCheck,
 )
+from ..status_text import SEE_LOG, exception_detail
 from .base import (
     ActivityResult,
     ActivityService,
@@ -105,7 +124,7 @@ class SputterCoatService(ActivityService):
         patterning_ops: PatterningOpsLike,
         stage_ops: StageOpsLike,
         gis_port_name: str,
-        target_position: Any,
+        target_position: StageTarget,
         position_name: str,
         ion_species_index: int,
         ion_current_a: float,
@@ -113,7 +132,9 @@ class SputterCoatService(ActivityService):
         pattern_path: Path,
         duration_s: int,
         chamber_recovery_s: int,
+        staged: bool,
         instance_id: str,
+        required_holder: str = "",
     ) -> None:
         """Construct the activity.
 
@@ -125,6 +146,18 @@ class SputterCoatService(ActivityService):
         that constant). ``target_position`` / ``position_name`` are
         resolved from ``position_id`` against the StagePositionsController
         by the runner, which refuses to start if the resolution fails.
+
+        ``staged`` comes from
+        :attr:`SettingsController.zeroTiltBeforeStageMoves` (via the
+        workflow settings snapshot). When True, the move to
+        ``target_position`` is a staged move — see the module
+        docstring.
+
+        ``required_holder`` is the xT holder to select before the move
+        to the position (the holder the position was saved with, else
+        the Start holder); empty means "leave the holder alone". When
+        set and ``staged``, the stage tilts to 0° under the holder
+        selected now before the holder changes.
         """
         super().__init__()
         self._ion_beam = ion_beam_ops
@@ -141,6 +174,8 @@ class SputterCoatService(ActivityService):
         self._pattern_path = Path(pattern_path)
         self._duration_s = int(duration_s)
         self._chamber_recovery_s = int(chamber_recovery_s)
+        self._staged = bool(staged)
+        self._required_holder = str(required_holder)
         # Override the class default with this instance's id. Read by
         # the workflow runner for per-instance status routing.
         self.instance_id = str(instance_id)
@@ -224,31 +259,80 @@ class SputterCoatService(ActivityService):
             on_status("Sputter coat: stage Z is not linked to free working distance")
             return ActivityResult.EXCEPTION
 
-        # ---------------------------------------------------------------
-        # Tilt to zero, then move to the sputter-coat position.
-        # ---------------------------------------------------------------
-        on_status("Tilting stage to zero...")
         report_indeterminate(on_progress)
-        try:
-            self._stage.absolute_move(self._stage.make_position(t=0.0))
-        except Exception as exc:
-            report_activity_exception(
-                on_status, log_prefix, status_prefix, "tilt to zero", exc,
-            )
-            return ActivityResult.EXCEPTION
-        if stop_event.is_set():
-            return ActivityResult.STOP
 
-        on_status(f"Moving stage to {self._position_name}...")
-        report_indeterminate(on_progress)
+        # ---------------------------------------------------------------
+        # Leave under the holder selected now, arrive under the
+        # position's: with a staged move, tilt to 0° first so the holder
+        # changes while the stage is flat (the staged move's own tilt
+        # stage is then skipped). Verified by an arrival check.
+        # ---------------------------------------------------------------
+        if self._required_holder and self._staged:
+            try:
+                tilt_to_zero(self._stage, on_status=on_status)
+            except StageMoveShortfall as exc:
+                return self._stopped_short(
+                    on_status, log_prefix, status_prefix, exc,
+                )
+            except Exception as exc:
+                report_activity_exception(
+                    on_status, log_prefix, status_prefix, "tilt to zero", exc,
+                )
+                return ActivityResult.EXCEPTION
+            if stop_event.is_set():
+                return ActivityResult.STOP
+
+        # ---------------------------------------------------------------
+        # Select the holder the position needs before moving there:
+        # Microscope Control refuses positions outside the selected
+        # holder's limits. Verified by readback (see
+        # microscope/holder.py); a failed or overridden switch ends the
+        # activity before the stage moves to the position. No-op when
+        # the holder is already selected.
+        # ---------------------------------------------------------------
+        if self._required_holder:
+            try:
+                select_holder(
+                    self._stage, self._required_holder,
+                    should_abort=stop_event.is_set,
+                    on_status=on_status,
+                )
+            except Exception as exc:
+                report_activity_exception(
+                    on_status, log_prefix, status_prefix,
+                    "holder selection", exc,
+                )
+                return ActivityResult.EXCEPTION
+            if stop_event.is_set():
+                return ActivityResult.STOP
+
+        # ---------------------------------------------------------------
+        # Move the stage to the sputter-coat position: a staged move
+        # (tilt to 0°, move X/Y/Z/R, tilt to the position's tilt) when
+        # the Zero Tilt Before Stage Moves setting is on, one move
+        # otherwise. Each stage is read back; a shortfall (xT clamping
+        # the move at the holder limits) ends the activity before the
+        # needle moves. AutoScript stage moves are uninterruptible; stop
+        # requests are honoured between stages. Indeterminate progress
+        # throughout.
+        # ---------------------------------------------------------------
         try:
-            self._stage.absolute_move(self._target_position)
+            arrived = staged_move(
+                self._stage, self._target_position,
+                staged=self._staged, name=self._position_name,
+                on_status=on_status, should_stop=stop_event.is_set,
+            )
+        except StageMoveShortfall as exc:
+            return self._stopped_short(
+                on_status, log_prefix, status_prefix, exc,
+            )
         except Exception as exc:
             report_activity_exception(
                 on_status, log_prefix, status_prefix, "stage move", exc,
             )
             return ActivityResult.EXCEPTION
-        if stop_event.is_set():
+
+        if not arrived or stop_event.is_set():
             return ActivityResult.STOP
 
         # ---------------------------------------------------------------
@@ -334,6 +418,22 @@ class SputterCoatService(ActivityService):
                     "original operation may have already failed",
                     log_prefix,
                 )
+
+    @staticmethod
+    def _stopped_short(
+        on_status: StatusCallback,
+        log_prefix: str,
+        status_prefix: str,
+        exc: StageMoveShortfall,
+    ) -> ActivityResult:
+        """Report a shortfall before the needle moves; called in ``except``."""
+        logger.exception("%s: stage move stopped short", log_prefix)
+        logger.warning("%s: %s", log_prefix, SHORTFALL_HOLDER_HINT)
+        on_status(
+            f"{status_prefix}: stage did not reach position {SEE_LOG}",
+            exception_detail(exc),
+        )
+        return ActivityResult.EXCEPTION
 
     def _run_with_inserted_coater(
         self,
@@ -514,4 +614,8 @@ class SputterCoatService(ActivityService):
             "pattern_file": self._pattern_path.name,
             "duration_s": self._duration_s,
             "chamber_recovery_s": self._chamber_recovery_s,
+            "staged_move": self._staged,
+            # The holder selected for the position (its saved holder,
+            # else the Start holder); empty = the holder was left alone.
+            "holder": self._required_holder,
         }

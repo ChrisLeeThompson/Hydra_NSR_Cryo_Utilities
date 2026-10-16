@@ -17,6 +17,21 @@ every axis to zero — a chamber-collision risk on real hardware.
 Positions read back via ``current_position`` always have concrete
 floats on every axis; ``None`` appears only in commanded positions.
 
+Coordinate systems: the app sets the stage's default coordinate system
+to RAW at connect (``microscope/client.py``), so ``current_position``
+and every move are in the RAW (encoder) frame unless a command says
+otherwise. ``make_position(..., coordinate_system=...)`` tags one
+command with another frame (a ``CoordinateSystem`` enumeration value,
+"Raw" or "Specimen"), and ``position_in(coordinate_system)`` reads the
+position in a named frame — the stage reads only in its default frame,
+so the read switches the default and restores it.
+``absolute_move(..., rotate_compucentric=True)`` sends
+``MoveSettings`` so X and Y follow a rotation; left off, the move is
+sent with the position alone. The app's own moves are all plain and
+in the RAW frame. The simulated stage models the two frames as a
+rotation offset (``set_specimen_rotation_offset``), zero unless a
+test sets it.
+
 Both implementations expose a read-only ``is_linked``. The real
 :class:`StageOps` has no ``link()`` / ``unlink()`` — linking is a
 deliberate user action in xT and is never done programmatically. The
@@ -25,19 +40,28 @@ as testing escape hatches for the REFUSE / ASK_CONFIRM branches of the
 pre-start checks; the ``DEV_FORCE_UNLINKED`` and
 ``DEV_FORCE_STAGE_OUT_OF_RANGE`` flags in :mod:`hydra_nsr_cu.defaults`
 seed those states at construction, and ``home()`` honours the
-out-of-range flag.
+out-of-range flag. ``DEV_FORCE_STAGE_SHORTFALL`` makes
+``absolute_move`` land short on X, standing in for xT clamping a move
+at the holder limits.
 """
 from __future__ import annotations
 
 import logging
+import math
 import time
 from dataclasses import dataclass, replace
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from .. import defaults
 
 logger = logging.getLogger(__name__)
 
+
+#: ``CoordinateSystem`` enumeration values (AutoScript 4.14): the stage
+#: frames a command or a read can name. AutoScript starts on Specimen;
+#: the app's default is RAW.
+RAW_COORDINATE_SYSTEM = "Raw"
+SPECIMEN_COORDINATE_SYSTEM = "Specimen"
 
 # Simulated-mode delay for absolute_move. Lets the UI-side busy
 # indicator and page-disable behavior be visible during dev.
@@ -52,12 +76,21 @@ _SIM_MOVE_DELAY_S = 1.5
 # short enough that the Z slider stays interactive.
 _SIM_RELATIVE_MOVE_DELAY_S = 0.25
 
+# How far short of the command the simulated stage lands while
+# DEV_FORCE_STAGE_SHORTFALL is set (X and tilt): well past the arrival
+# tolerances.
+_SIM_SHORTFALL_M = 50e-6
+_SIM_SHORTFALL_RAD = math.radians(1.0)
+
 
 class StageOps:
     """Real stage ops backed by ``SdbMicroscopeClient.specimen.stage``."""
 
     def __init__(self, sdb: Any) -> None:
         self._sdb = sdb
+        # The stage's default coordinate system, as last set through
+        # set_default_coordinate_system(); AutoScript starts on Specimen.
+        self._default_coordinate_system: str = SPECIMEN_COORDINATE_SYSTEM
 
     @property
     def current_position(self) -> Any:
@@ -80,7 +113,26 @@ class StageOps:
         logger.debug("Stage is_linked: %r", is_linked)
         return is_linked
 
-    def absolute_move(self, position: Any) -> None:
+    def absolute_move(
+        self, position: Any, *, rotate_compucentric: bool = False,
+    ) -> None:
+        """Move the stage to ``position``.
+
+        ``rotate_compucentric`` sends ``MoveSettings`` with that flag so
+        X and Y follow a rotation (the point under the beam stays put).
+        Left False, as the app's moves leave it, the move is sent with
+        the position alone.
+        """
+        if rotate_compucentric:
+            # Lazy import — see make_position.
+            from autoscript_sdb_microscope_client.structures import MoveSettings
+            logger.info(
+                "Stage absolute_move to %r (rotate_compucentric)", position,
+            )
+            self._sdb.specimen.stage.absolute_move(
+                position, MoveSettings(rotate_compucentric=True),
+            )
+            return
         logger.info("Stage absolute_move to %r", position)
         self._sdb.specimen.stage.absolute_move(position)
 
@@ -135,11 +187,71 @@ class StageOps:
             "Stage: set default coordinate system to %r", coordinate_system
         )
         self._sdb.specimen.stage.set_default_coordinate_system(coordinate_system)
+        self._default_coordinate_system = str(coordinate_system)
+
+    def position_in(self, coordinate_system: str) -> Any:
+        """Read the stage position in ``coordinate_system``.
+
+        The stage reads ``current_position`` in its default coordinate
+        system only, so a read in another frame switches the default,
+        reads, and restores the default — also when the read fails.
+        Same as :attr:`current_position` when ``coordinate_system`` is
+        the default already (no switch).
+        """
+        coordinate_system = str(coordinate_system)
+        default = self._default_coordinate_system
+        if coordinate_system == default:
+            return self.current_position
+        stage = self._sdb.specimen.stage
+        stage.set_default_coordinate_system(coordinate_system)
+        try:
+            position = stage.current_position
+        finally:
+            stage.set_default_coordinate_system(default)
+        logger.debug(
+            "Stage current_position (%s): %r", coordinate_system, position,
+        )
+        return position
 
     def home(self) -> None:
         logger.info("Stage home: starting")
         self._sdb.specimen.stage.home()
         logger.info("Stage home: complete")
+
+    # --- Holder (AutoScript 4.14: specimen.stage.holder) ------------------
+
+    @property
+    def holder(self) -> str:
+        """Name of the holder currently selected in Microscope Control.
+
+        Holder names are plain strings defined by the server; the ones
+        a stage position can be saved with are listed in
+        ``SUPPORTED_HOLDERS`` in :mod:`hydra_nsr_cu.defaults`.
+        """
+        value = str(self._sdb.specimen.stage.holder.value)
+        logger.debug("Stage holder: %r", value)
+        return value
+
+    @property
+    def available_holders(self) -> List[str]:
+        """Holders xT lists as applicable in the current microscope state."""
+        values = [
+            str(v) for v in self._sdb.specimen.stage.holder.available_values
+        ]
+        logger.debug("Stage available holders: %r", values)
+        return values
+
+    def set_holder(self, name: str) -> None:
+        """Ask Microscope Control to select holder ``name``.
+
+        xT may accept the command and then silently change the holder
+        back to one it permits, so callers verify by reading
+        :attr:`holder` back — use
+        :func:`hydra_nsr_cu.microscope.holder.select_holder` rather
+        than calling this directly.
+        """
+        logger.info("Stage: selecting holder %r", name)
+        self._sdb.specimen.stage.holder.value = str(name)
 
     def make_position(
         self,
@@ -148,6 +260,7 @@ class StageOps:
         z: Optional[float] = None,
         r: Optional[float] = None,
         t: Optional[float] = None,
+        coordinate_system: Optional[str] = None,
     ) -> Any:
         """Construct a StagePosition. Axes left at ``None`` are not commanded.
 
@@ -155,6 +268,9 @@ class StageOps:
         "do not move that axis". Callers pass only the axes they want
         to command. Saved-position consumers (Stage Positions, GIS
         Deposition) pass all five; rotation phases pass one or two.
+        ``coordinate_system`` names the frame the values are in (a
+        ``CoordinateSystem`` enumeration value); ``None`` leaves the
+        move in the stage's default frame.
         """
         # Lazy import — keeps the module loadable on machines without
         # AutoScript installed (simulation-only environments).
@@ -164,6 +280,8 @@ class StageOps:
             (("x", x), ("y", y), ("z", z), ("r", r), ("t", t))
             if v is not None
         }
+        if coordinate_system is not None:
+            kwargs["coordinate_system"] = str(coordinate_system)
         return StagePosition(**kwargs)
 
 
@@ -185,13 +303,19 @@ class SimulatedStagePosition:
     z: Optional[float] = None
     r: Optional[float] = None
     t: Optional[float] = None
+    #: The frame the values are in; ``None`` is the stage default (RAW).
+    coordinate_system: Optional[str] = None
 
     def __repr__(self) -> str:
         def _fmt(v: Optional[float]) -> str:
             return "None" if v is None else f"{v:.4g}"
+        frame = (
+            "" if self.coordinate_system is None
+            else f", {self.coordinate_system}"
+        )
         return (
             f"SimulatedStagePosition(x={_fmt(self.x)}, y={_fmt(self.y)}, "
-            f"z={_fmt(self.z)}, r={_fmt(self.r)}, t={_fmt(self.t)})"
+            f"z={_fmt(self.z)}, r={_fmt(self.r)}, t={_fmt(self.t)}{frame})"
         )
 
 
@@ -243,10 +367,69 @@ class SimulatedStageOps:
         # exercise the REFUSE branch, or set DEV_FORCE_UNLINKED in
         # defaults.py to start unlinked without editing this line.
         self._is_linked: bool = not defaults.DEV_FORCE_UNLINKED
+        # Holder selection. Starts on DEV_SIMULATED_INITIAL_HOLDER (the
+        # AutoGrid shuttle holder, the normal cryo state); the available
+        # list comes from defaults so it tracks SUPPORTED_HOLDERS. The
+        # override fields back DEV_FORCE_HOLDER_OVERRIDE — see
+        # set_holder().
+        self._holder: str = defaults.DEV_SIMULATED_INITIAL_HOLDER
+        self._available_holders: List[str] = list(
+            defaults.DEV_SIMULATED_HOLDERS
+        )
+        self._override_revert_to: Optional[str] = None
+        self._override_reads_left: int = 0
+        # Specimen rotation = RAW rotation + this offset; see
+        # set_specimen_rotation_offset().
+        self._specimen_rotation_offset_rad: float = 0.0
 
     @property
     def current_position(self) -> SimulatedStagePosition:
         return replace(self._position)
+
+    # --- Holder -------------------------------------------------------------
+
+    @property
+    def holder(self) -> str:
+        """Selected holder name; mirrors :attr:`StageOps.holder`.
+
+        With a pending ``DEV_FORCE_HOLDER_OVERRIDE`` revert, the first
+        read after :meth:`set_holder` still shows the new holder and
+        the next read reverts it — the sim's stand-in for Microscope
+        Control changing the holder back a moment after accepting the
+        command.
+        """
+        if self._override_revert_to is not None:
+            if self._override_reads_left > 0:
+                self._override_reads_left -= 1
+            else:
+                logger.info(
+                    "Simulated stage: xT override reverts holder to %r",
+                    self._override_revert_to,
+                )
+                self._holder = self._override_revert_to
+                self._override_revert_to = None
+        return self._holder
+
+    @property
+    def available_holders(self) -> List[str]:
+        """Mirrors :attr:`StageOps.available_holders`."""
+        return list(self._available_holders)
+
+    def set_holder(self, name: str) -> None:
+        """Select a holder; an unlisted name raises like a bad server request.
+
+        See :attr:`holder` for the ``DEV_FORCE_HOLDER_OVERRIDE``
+        behaviour this arms.
+        """
+        name = str(name)
+        if name not in self._available_holders:
+            raise ValueError(f"holder {name!r} is not available")
+        previous = self._holder
+        self._holder = name
+        if defaults.DEV_FORCE_HOLDER_OVERRIDE and name != previous:
+            self._override_revert_to = previous
+            self._override_reads_left = 1
+        logger.info("Simulated stage: holder %r -> %r", previous, name)
 
     @property
     def is_linked(self) -> bool:
@@ -319,26 +502,56 @@ class SimulatedStageOps:
         )
         logger.info("Simulated stage: force_position() → %r", self._position)
 
-    def absolute_move(self, position: Any) -> None:
+    def absolute_move(
+        self, position: Any, *, rotate_compucentric: bool = False,
+    ) -> None:
         """Move to ``position``; axes set to ``None`` are not moved.
 
         Honours AutoScript's per-axis "don't move" semantic — for
         any axis where the commanded position has ``None``, the
         current value is carried forward into the new state. The
         stored state always has concrete floats on every axis.
+        ``rotate_compucentric`` is accepted for API parity with
+        :class:`StageOps` and has no geometric effect (see
+        :meth:`relative_move`).
         """
         def _coalesce(commanded: Any, current: float) -> float:
             return current if commanded is None else float(commanded)
 
         cur = self._position
+        commanded_r = getattr(position, "r", None)
+        if (commanded_r is not None
+                and getattr(position, "coordinate_system", None)
+                == SPECIMEN_COORDINATE_SYSTEM):
+            # A Specimen-frame rotation lands offset in the RAW state.
+            commanded_r = float(commanded_r) - self._specimen_rotation_offset_rad
         new_position = SimulatedStagePosition(
             x=_coalesce(getattr(position, "x", None), cur.x),
             y=_coalesce(getattr(position, "y", None), cur.y),
             z=_coalesce(getattr(position, "z", None), cur.z),
-            r=_coalesce(getattr(position, "r", None), cur.r),
+            r=_coalesce(commanded_r, cur.r),
             t=_coalesce(getattr(position, "t", None), cur.t),
         )
-        logger.info("Simulated stage: absolute_move to %r", new_position)
+        if defaults.DEV_FORCE_STAGE_SHORTFALL:
+            # Stand-in for xT clamping a move at the holder limits: the
+            # move returns normally but the commanded axes land short.
+            if getattr(position, "x", None) is not None:
+                new_position = replace(
+                    new_position, x=new_position.x - _SIM_SHORTFALL_M,
+                )
+            if getattr(position, "t", None) is not None:
+                new_position = replace(
+                    new_position, t=new_position.t - _SIM_SHORTFALL_RAD,
+                )
+            logger.info(
+                "Simulated stage: DEV_FORCE_STAGE_SHORTFALL lands X %.0f µm "
+                "and tilt %.1f° short of the command",
+                _SIM_SHORTFALL_M * 1e6, math.degrees(_SIM_SHORTFALL_RAD),
+            )
+        logger.info(
+            "Simulated stage: absolute_move to %r%s", new_position,
+            " (rotate_compucentric; ignored in sim)" if rotate_compucentric else "",
+        )
         time.sleep(_SIM_MOVE_DELAY_S)
         self._position = new_position
 
@@ -385,14 +598,46 @@ class SimulatedStageOps:
     def set_default_coordinate_system(self, coordinate_system: Any) -> None:
         """Sim no-op (kept for StageOpsLike parity).
 
-        The simulation is coordinate-only and doesn't model the
-        free-working-distance link, so RAW vs Specimen makes no difference
-        — saved positions already round-trip exactly. Accepted so the
-        connect path can call it symmetrically on either facade.
+        The simulated state is in the RAW frame and the simulation
+        doesn't model the free-working-distance link; the Specimen
+        frame differs only by the rotation offset of
+        :meth:`set_specimen_rotation_offset`, which :meth:`position_in`
+        and a Specimen-tagged command apply. Accepted so the connect
+        path can call it symmetrically on either facade.
         """
         logger.info(
             "Simulated stage: set default coordinate system to %r (no-op)",
             coordinate_system,
+        )
+
+    def set_specimen_rotation_offset(self, offset_rad: float) -> None:
+        """Testing escape hatch: Specimen rotation = RAW rotation + offset.
+
+        The simulation is coordinate-only; this one offset stands in
+        for the difference between xT's Specimen and RAW rotation so a
+        move or a read in the Specimen frame can be checked. Zero by
+        default, so the frames coincide.
+        """
+        self._specimen_rotation_offset_rad = float(offset_rad)
+        logger.info(
+            "Simulated stage: Specimen rotation offset set to %.2f°",
+            math.degrees(self._specimen_rotation_offset_rad),
+        )
+
+    def position_in(self, coordinate_system: str) -> SimulatedStagePosition:
+        """Read the simulated position in ``coordinate_system``.
+
+        Mirrors :meth:`StageOps.position_in`: the RAW state as is, or
+        the Specimen frame with the rotation offset applied and the
+        position tagged with that frame.
+        """
+        coordinate_system = str(coordinate_system)
+        if coordinate_system != SPECIMEN_COORDINATE_SYSTEM:
+            return self.current_position
+        cur = self._position
+        return replace(
+            cur, r=cur.r + self._specimen_rotation_offset_rad,
+            coordinate_system=coordinate_system,
         )
 
     def home(self) -> None:
@@ -406,13 +651,20 @@ class SimulatedStageOps:
         z: Optional[float] = None,
         r: Optional[float] = None,
         t: Optional[float] = None,
+        coordinate_system: Optional[str] = None,
     ) -> SimulatedStagePosition:
         """Construct a SimulatedStagePosition. Axes left at ``None`` are not commanded.
 
         Mirrors :meth:`StageOps.make_position` — see there for the
-        per-axis "don't move" rationale.
+        per-axis "don't move" rationale and the ``coordinate_system``
+        tag.
         """
-        return SimulatedStagePosition(x=x, y=y, z=z, r=r, t=t)
+        return SimulatedStagePosition(
+            x=x, y=y, z=z, r=r, t=t,
+            coordinate_system=(
+                None if coordinate_system is None else str(coordinate_system)
+            ),
+        )
 
 
 # Type alias for callers that accept either implementation.

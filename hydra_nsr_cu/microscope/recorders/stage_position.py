@@ -6,43 +6,29 @@ runners when the "Move Stage To Original Position" setting is
 enabled: capture before the activity loop, restore after a
 *successful* run so the stage ends where the session began.
 
-Why hold the position object verbatim
---------------------------------------
-Unlike :class:`PFIBConditionsRecorder`, which decomposes ion-beam
-state into scalar fields, this recorder captures one atomic value —
-the object returned by ``stage.current_position`` — and replays it
-unchanged to ``stage.absolute_move``. Two reasons:
+Capture holds the object returned by ``stage.current_position``
+verbatim. Restore converts it to a :class:`StageTarget`, which
+requires all five axes to be present and finite, so the return move
+can never drop an axis (an unset axis is a collision hazard; see
+``stage_ops.py``). Both the read and the command use the coordinate
+system set once at connect (RAW), so the round trip through floats
+keeps the frame.
 
-* **Safety.** Reconstructing the position via
-  ``stage.make_position(x=..., y=..., ...)`` would route the restore
-  through the same factory whose per-axis ``None`` defaults are a
-  known collision hazard if an axis is ever accidentally dropped.
-  Replaying the captured object can't omit an axis — it's the exact
-  position the hardware reported.
-* **Coordinate-frame fidelity.** ``current_position`` returns a
-  position in the stage's active coordinate system; passing that
-  same object back to ``absolute_move`` preserves the frame.
-  Decomposing to floats and rebuilding would re-enter whatever the
-  *default* coordinate system is at restore time — correct only so
-  long as nobody calls ``set_default_coordinate_system`` between
-  capture and restore. Replaying the object sidesteps that latent
-  fragility entirely.
-
-Restore is a single blocking ``absolute_move``. It is not
-interruptible mid-move, but a single absolute move is fast on real
-hardware and trivial on the simulated
-client. The *policy* decision of whether to restore at all (only on
-a fully successful run — never after a stop or exception) lives in
-the workflow runner, not here; this recorder just performs the
-capture and the move when asked.
+The restore is a staged move with arrival checks (see
+``microscope/stage_moves.py``): tilt to 0°, X/Y/Z/R, tilt to the
+captured tilt, each stage read back. The *policy* decision of whether
+to restore at all (only on a fully successful run, never after a stop
+or exception) lives in the workflow runner, not here; this recorder
+just performs the capture and the move when asked.
 """
 from __future__ import annotations
 
 import logging
 import math
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable, Optional
 
+from ..stage_moves import StageTarget, staged_move
 from ..stage_ops import StageOpsLike
 
 logger = logging.getLogger(__name__)
@@ -54,8 +40,8 @@ class StagePositionSnapshot:
 
     Holds the value object returned by ``stage.current_position``
     verbatim (a real AutoScript ``StagePosition`` or a
-    :class:`SimulatedStagePosition`). Workflows treat it as opaque —
-    capture, hold, restore — without reconstructing it.
+    :class:`SimulatedStagePosition`). Workflows treat it as opaque:
+    capture, hold, restore.
 
     The ``__repr__`` decomposes the position's axes for the log trail
     without the snapshot depending on a particular concrete position
@@ -110,16 +96,30 @@ class StageRecorder:
         logger.info("Stage position captured: %r", snapshot)
         return snapshot
 
-    def restore(self, snapshot: StagePositionSnapshot) -> None:
-        """Move the stage back to a previously-captured position.
+    def restore(
+        self,
+        snapshot: StagePositionSnapshot,
+        *,
+        staged: bool = True,
+        should_abandon: Optional[Callable[[], bool]] = None,
+        on_status: Optional[Callable[[str], None]] = None,
+    ) -> bool:
+        """Move the stage back to a previously captured position.
 
-        A single blocking ``absolute_move`` to the captured position
-        object. Not interruptible mid-move. The caller owns the policy
-        decision of *whether* to restore — the workflow runners restore
-        only on a fully successful run, never after a stop or exception,
-        since commanding further motion after an abnormal exit is
-        unsafe.
+        A staged move (tilt to 0°, X/Y/Z/R, tilt) when ``staged`` is
+        True, one five-axis move otherwise; every stage ends with an
+        arrival check, so a :class:`StageMoveShortfall` or a hardware
+        error propagates. Returns False when ``should_abandon()``
+        turned true between stages (nothing further is commanded),
+        True when the stage arrived. A captured position missing an
+        axis raises ``ValueError`` before anything moves.
         """
+        target = StageTarget.from_position(snapshot.position)
         logger.info("Stage position restoring: %r", snapshot)
-        self._stage.absolute_move(snapshot.position)
-        logger.info("Stage position restore complete")
+        arrived = staged_move(
+            self._stage, target, staged=staged, name="original position",
+            on_status=on_status, should_stop=should_abandon,
+        )
+        if arrived:
+            logger.info("Stage position restore complete")
+        return arrived

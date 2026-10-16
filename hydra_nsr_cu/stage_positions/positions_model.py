@@ -7,16 +7,22 @@ need to point at a specific saved position rather than at an index.
 
 Coordinate units are AutoScript SI units (meters for x/y/z, radians
 for r/t). Conversion to display units (mm, degrees) happens in QML.
+Each record also carries the xT holder that was selected when it was
+saved or last updated (empty when not recorded); GIS Deposition,
+Sputter Coat and Move To select it before moving there.
 
 QML interaction
 ---------------
 The model exposes:
 
 * Standard ``QAbstractListModel`` machinery for delegate consumption
-  via custom roles.
+  via custom roles (including ``holder``, ``holderTag`` and
+  ``holderConfirm`` for the holder chip).
 * ``count`` as a Qt property for the dialog's name-uniqueness check.
 * ``get(int)`` returning a JavaScript dict
   (``positionsModel.get(i).name``).
+* ``holder_info(int)`` returning the holder, its tag and whether a
+  move there asks for confirmation, for QML outside the delegate.
 * ``find_index_by_id(str)`` for translating ids to indices when the
   controller needs to update or remove a row by id.
 
@@ -41,6 +47,8 @@ from PySide6.QtCore import (
     Slot,
 )
 
+from ..microscope.holder import holder_tag, needs_confirmation
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,7 +58,10 @@ class SavedStagePosition:
 
     Coordinates are in AutoScript SI units (meters for x/y/z, radians
     for r/t). The ``id`` is a stable identifier assigned at creation
-    time and persisted across sessions.
+    time and persisted across sessions. ``holder`` is xT's holder name
+    when the position was saved or last updated; empty when it was not
+    recorded (positions saved before holders were recorded, older
+    templates, or a failed holder read).
     """
     id: str
     name: str
@@ -59,6 +70,7 @@ class SavedStagePosition:
     z: float = 0.0
     r: float = 0.0
     t: float = 0.0
+    holder: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -75,6 +87,7 @@ class SavedStagePosition:
             z=float(d.get("z", 0.0)),
             r=float(d.get("r", 0.0)),
             t=float(d.get("t", 0.0)),
+            holder=str(d.get("holder") or ""),
         )
 
 
@@ -102,6 +115,11 @@ class StagePositionsModel(QAbstractListModel):
     ZRole = Qt.UserRole + 5
     RRole = Qt.UserRole + 6
     TRole = Qt.UserRole + 7
+    HolderRole = Qt.UserRole + 8
+    HolderTagRole = Qt.UserRole + 9
+    HolderConfirmRole = Qt.UserRole + 10
+
+    _HOLDER_ROLES = (HolderRole, HolderTagRole, HolderConfirmRole)
 
     # Notify signal so QML's "count" binding refreshes when rows are
     # added or removed. QAbstractListModel emits rowsInserted/
@@ -141,6 +159,12 @@ class StagePositionsModel(QAbstractListModel):
             return rec.r
         if role == self.TRole:
             return rec.t
+        if role == self.HolderRole:
+            return rec.holder
+        if role == self.HolderTagRole:
+            return holder_tag(rec.holder)
+        if role == self.HolderConfirmRole:
+            return needs_confirmation(rec.holder)
         return None
 
     def roleNames(self) -> Dict[int, QByteArray]:
@@ -154,6 +178,9 @@ class StagePositionsModel(QAbstractListModel):
             self.ZRole: QByteArray(b"posZ"),
             self.RRole: QByteArray(b"posR"),
             self.TRole: QByteArray(b"posT"),
+            self.HolderRole: QByteArray(b"holder"),
+            self.HolderTagRole: QByteArray(b"holderTag"),
+            self.HolderConfirmRole: QByteArray(b"holderConfirm"),
         }
 
     # --- QML conveniences --------------------------------------------------
@@ -173,6 +200,21 @@ class StagePositionsModel(QAbstractListModel):
         if not (0 <= index < len(self._records)):
             return {}
         return self._records[index].to_dict()
+
+    @Slot(int, result="QVariant")
+    def holder_info(self, index: int) -> Dict[str, Any]:
+        """The holder of the row at ``index``, for QML outside the delegate.
+
+        ``{"holder", "tag", "needsConfirmation"}``; an out-of-range
+        index reads like a position with no recorded holder.
+        """
+        holder = (self._records[index].holder
+                  if 0 <= index < len(self._records) else "")
+        return {
+            "holder": holder,
+            "tag": holder_tag(holder),
+            "needsConfirmation": needs_confirmation(holder),
+        }
 
     @Slot(str, result=int)
     def find_index_by_id(self, position_id: str) -> int:
@@ -216,19 +258,27 @@ class StagePositionsModel(QAbstractListModel):
         self,
         index: int,
         x: float, y: float, z: float, r: float, t: float,
+        holder: str,
     ) -> bool:
-        """Update the coordinates of the row at ``index`` (name unchanged)."""
+        """Update the coordinates and holder of the row at ``index``.
+
+        The name and id are unchanged. ``holder`` is the holder the new
+        coordinates were captured under ("" when it could not be read).
+        """
         if not (0 <= index < len(self._records)):
             return False
         old = self._records[index]
-        self._records[index] = replace(old, x=x, y=y, z=z, r=r, t=t)
+        self._records[index] = replace(
+            old, x=x, y=y, z=z, r=r, t=t, holder=holder,
+        )
         # All coordinate roles change at once; emit dataChanged for the
         # full role list so any binding refreshes.
         model_index = self.index(index, 0)
         self.dataChanged.emit(
             model_index,
             model_index,
-            [self.XRole, self.YRole, self.ZRole, self.RRole, self.TRole],
+            [self.XRole, self.YRole, self.ZRole, self.RRole, self.TRole,
+             *self._HOLDER_ROLES],
         )
         return True
 

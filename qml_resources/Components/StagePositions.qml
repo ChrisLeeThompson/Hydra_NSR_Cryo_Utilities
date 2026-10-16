@@ -19,22 +19,30 @@ import "../Dialogs"
 //
 //   • Add Position    — opens a name dialog; on accept, calls
 //                       appController.stagePositions.add_from_current(name).
-//                       The controller reads the live stage position
-//                       and appends a row.
+//                       The controller reads the live stage position and
+//                       the selected holder and appends a row. A holder
+//                       outside SUPPORTED_HOLDERS opens "Holder Not
+//                       Supported" instead (checked before the name
+//                       dialog opens, and again by the controller).
 //   • Edit Name       — opens a name dialog; on accept, calls
 //                       appController.stagePositions.rename(index, name).
 //                       Renames only — coordinates are unchanged.
-//   • Move To         — opens a confirm dialog; on accept, calls
-//                       appController.stagePositions.move_to(index).
-//                       The move runs on a worker thread; observe via
+//   • Move To         — opens the Move To dialog; on accept, calls
+//                       appController.stagePositions.move_to(index). The
+//                       controller selects the holder the position was
+//                       saved with and leaves it selected; for the
+//                       standard shuttle and spin mill holders the
+//                       dialog says so. The move runs on a worker
+//                       thread; observe via
 //                       appController.stagePositions.isMoving and the
 //                       moveStarted / moveFinished signals. The page
 //                       hosting this component drives the parent
 //                       ActivityContainer's activityState in response.
 //   • Update Position — opens a confirm dialog; on accept, calls
 //                       appController.stagePositions.update_from_current(index).
-//                       The controller re-reads the stage and overwrites
-//                       coordinates; name and id are preserved.
+//                       The controller re-reads the stage and the holder
+//                       and overwrites both; name and id are preserved.
+//                       Same unsupported-holder check as Add Position.
 //   • Remove Position — opens a confirm dialog; on accept, calls
 //                       appController.stagePositions.remove(index).
 //
@@ -47,12 +55,14 @@ import "../Dialogs"
 //   delegate (StagePositionsListView).
 //
 // Stage Move error handling:
-//   On move failure, the controller emits moveFinished(false) and a
-//   generic error dialog opens directing the user to the log file
-//   for details. Surfacing the AutoScript exception message in the
-//   UI was considered and rejected — the messages can be cryptic
-//   to non-developers and centralizing diagnostics in the log file
-//   matches our broader pattern.
+//   On move failure, the controller emits moveFinished(false, name,
+//   reason) and an error dialog opens directing the user to the
+//   console log; a shortfall (the stage stopped short of the position,
+//   usually at the holder limits) and a holder that could not be
+//   selected get their own messages. Surfacing the AutoScript exception
+//   message in the UI was considered and rejected — the messages can be
+//   cryptic to non-developers and centralizing diagnostics in the
+//   console log matches our broader pattern.
 
 GroupBox {
 
@@ -93,6 +103,25 @@ GroupBox {
         return out
     }
 
+    // Open "Holder Not Supported" for `holder` (xT's name), listing the
+    // holders a position can be saved with.
+    function _showHolderNotSupported(holder) {
+        holderNotSupportedDialog.message = Strings.holderNotSupportedDialog
+            .arg(holder)
+            .arg(appController.stagePositions.supportedHoldersText)
+        holderNotSupportedDialog.open()
+    }
+
+    // True (and the dialog opened) when the selected holder cannot be
+    // saved with a position — checked before the Add / Update dialogs
+    // so the operator doesn't type a name for nothing.
+    function _refuseUnsupportedHolder() {
+        const holder = appController.stagePositions.unsupported_holder()
+        if (holder === "") return false
+        root._showHolderNotSupported(holder)
+        return true
+    }
+
     Layout.fillWidth: true
     Layout.fillHeight: true
 
@@ -112,10 +141,22 @@ GroupBox {
     Connections {
         target: appController.stagePositions
         ignoreUnknownSignals: true
-        function onMoveFinished(success) {
+        function onMoveFinished(success, name, reason) {
             if (!success) {
+                if (reason === "shortfall") {
+                    moveErrorDialog.message = Strings.stageMoveShortfallDialog.arg(name)
+                } else if (reason === "holder") {
+                    moveErrorDialog.message = Strings.stageMoveHolderErrorDialog.arg(name)
+                } else {
+                    moveErrorDialog.message = Strings.stageMoveErrorConfirmDialog
+                }
                 moveErrorDialog.open()
             }
+        }
+        // The controller re-checks the holder at save time; it changed
+        // since the button's pre-check.
+        function onHolderNotSupported(holder) {
+            root._showHolderNotSupported(holder)
         }
     }
 
@@ -159,6 +200,7 @@ GroupBox {
             enabled: appController.stagePositions !== null
 
             onClicked: {
+                if (root._refuseUnsupportedHolder()) return
                 addPositionDialog.existingNames = root._currentNames()
                 addPositionDialog.initialName = ""
                 addPositionDialog.open()
@@ -199,13 +241,18 @@ GroupBox {
             //   * the controller exists (microscope has connected)
             //   * a row is selected
             //   * no move is currently in flight
+            //   * no workflow is running
             //
-            // The cross-page disable system handles the "another page's
-            // workflow is running" case at the page level — this binding
-            // doesn't need to consult it.
+            // The last guard matters on the Cryo Prep page, which stays
+            // enabled during its own run: a manual move mid-workflow
+            // would race the running activity and be undone by the
+            // end-of-run stage restore. (anyWorkflowRunning also covers
+            // an in-flight Move To, so the isMoving check is kept only
+            // for the brief window before the move id is registered.)
             enabled: appController.stagePositions !== null
                      && root._hasSelection
                      && !appController.stagePositions.isMoving
+                     && !appController.anyWorkflowRunning
 
             ToolTip.text: Strings.stageMoveToButtonTooltip
             ToolTip.visible: hovered
@@ -214,6 +261,12 @@ GroupBox {
 
             onClicked: {
                 moveToDialog.message = Strings.stageMoveToMessage.arg(root._selectedName)
+                // The standard shuttle and spin mill holders ask first:
+                // the move selects the holder and leaves it selected.
+                const info = root.positionsModel.holder_info(root._selectedIndex)
+                moveToDialog.note = info.needsConfirmation
+                    ? Strings.stageMoveToHolderNote.arg(info.holder)
+                    : ""
                 moveToDialog.open()
             }
         }
@@ -233,6 +286,7 @@ GroupBox {
             ToolTip.timeout: AppConfig.toolTipTimeoutMs
 
             onClicked: {
+                if (root._refuseUnsupportedHolder()) return
                 updatePositionDialog.message = Strings.stageUpdatePositionMessage.arg(root._selectedName)
                 updatePositionDialog.open()
             }
@@ -315,12 +369,22 @@ GroupBox {
     }
 
     // Single-button error dialog opened by the move-finished Connections
-    // block above. Generic message — actual error details are in the
-    // log file.
+    // block above, which sets the message (generic failure, shortfall,
+    // or holder not selected). Actual error details are in the console
+    // log.
     ConfirmDialog {
         id: moveErrorDialog
         title: Strings.stageMoveErrorTitle
         message: Strings.stageMoveErrorConfirmDialog
+        dismissOnly: true
+    }
+
+    // Add / Update Position refused: the selected holder is not one a
+    // position can be saved with. The message names it and lists the
+    // supported ones (see _showHolderNotSupported).
+    ConfirmDialog {
+        id: holderNotSupportedDialog
+        title: Strings.holderNotSupportedTitle
         dismissOnly: true
     }
 

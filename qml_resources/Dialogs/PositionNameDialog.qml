@@ -116,6 +116,9 @@ Dialog {
             placeholderText: Strings.stagePositionNamePlaceholderText
             placeholderTextColor: AppConfig.placeholderTextColor
             selectByMouse: true
+            // Names reach the status bar ("Moving stage to ..."); the
+            // backend refuses longer names too (defaults.py).
+            maximumLength: AppConfig.positionNameMaxLength
 
             // No custom background — fall back to the Universal
             // theme's default underline-style input treatment so the

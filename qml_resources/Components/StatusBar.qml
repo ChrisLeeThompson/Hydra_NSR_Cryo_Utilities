@@ -55,6 +55,10 @@ Rectangle {
             Layout.fillWidth: true
             Layout.preferredWidth: 0
             elide: Text.ElideRight
+            // Plain text only: the default AutoText would treat a
+            // message containing a "<name>"-style saved-position name
+            // as rich text, and rich text ignores elide and can wrap.
+            textFormat: Text.PlainText
             horizontalAlignment: Text.AlignLeft
 
             // Full text on hover, only when the bar had to elide it
@@ -88,6 +92,7 @@ Rectangle {
             Layout.preferredWidth: AppConfig.statusBarIndicatorLabelWidth
             Layout.leftMargin: 6
             elide: Text.ElideRight
+            textFormat: Text.PlainText
             horizontalAlignment: Text.AlignRight
         }
 

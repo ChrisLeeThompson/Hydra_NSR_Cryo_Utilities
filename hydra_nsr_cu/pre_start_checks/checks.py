@@ -5,17 +5,25 @@ from the activity's perspective. Checks are pure functions of a
 :class:`HardwareSnapshot`; see
 :mod:`hydra_nsr_cu.pre_start_checks.snapshot`.
 
-Two checks today:
+Three checks today:
 
 * :class:`ZLinkedToFreeWorkingDistanceCheck` — hard precondition
   (REFUSE on failure). Required by GIS Deposition.
 * :class:`StagePositionWithinSafeRangeCheck` — soft warning
   (ASK_CONFIRM on failure). Required by GIS Deposition, Sputter
   Coat, Home Stage, and the direct Stage Rotation gesture.
+* :class:`HolderPositionsCheck` — reminder (always ASK_CONFIRM)
+  listing GIS Deposition and Sputter Coat positions saved with a
+  holder that asks first. Added by the Cryo Prep workflow when there
+  are any.
+
+The holder check takes its data in the constructor (the positions and
+the holder read at Start) rather than from the snapshot.
 """
 from __future__ import annotations
 
 import math
+from typing import Sequence, Tuple
 
 from .. import defaults
 from .base import (
@@ -133,5 +141,55 @@ class StagePositionWithinSafeRangeCheck(PreStartCheck):
             title="Stage position outside safe range\n",
             message=describe_out_of_range(
                 snapshot.stage_x_m, snapshot.stage_y_m
+            ),
+        )
+
+
+def holder_positions_message(
+    entries: Sequence[Tuple[str, str]], start_holder: str,
+) -> str:
+    """Body of :class:`HolderPositionsCheck`: one line per position.
+
+    ``entries`` are ``(position name, holder)`` pairs. The holder names
+    are xT's own, so the operator can match them in Sample Exchange.
+    """
+    lines = [
+        "GIS Deposition and Sputter Coat select the holder saved with "
+        "each of these positions before moving the stage:"
+    ]
+    lines.extend(f"• {name}: {holder}" for name, holder in entries)
+    if start_holder:
+        lines.append(
+            f"\n{start_holder}, selected now, is selected again when the run "
+            "ends."
+        )
+    return "\n".join(lines)
+
+
+class HolderPositionsCheck(PreStartCheck):
+    """Ask before a run moves to positions saved with a holder that warns.
+
+    Lists the enabled GIS Deposition and Sputter Coat positions saved
+    with a holder in ``defaults.HOLDERS_TO_CONFIRM`` (the standard
+    shuttle and spin mill holders): the run selects those holders on
+    the way, so the operator confirms it knows. Always ASK_CONFIRM;
+    the Cryo Prep workflow adds it only when there is something to
+    list. Constructed with the entries and the Start holder and
+    evaluated without the snapshot; not declared by any activity
+    class, so the mid-run re-check never evaluates it.
+    """
+
+    def __init__(
+        self, entries: Sequence[Tuple[str, str]], start_holder: str,
+    ) -> None:
+        self._entries = [(str(n), str(h)) for n, h in entries]
+        self._start_holder = str(start_holder or "")
+
+    def evaluate(self, snapshot: HardwareSnapshot) -> PreStartCheckResult:
+        return PreStartCheckResult(
+            outcome=PreStartCheckOutcome.ASK_CONFIRM,
+            title="Stage positions change the holder\n",
+            message=holder_positions_message(
+                self._entries, self._start_holder,
             ),
         )

@@ -36,7 +36,9 @@ _K_LAMELLA_SPUTTER_DURATION_S = _PREFIX + "lamellaSputterDurationS"
 _K_MOVE_STAGE_TO_ORIGINAL = _PREFIX + "moveStageToOriginalPosition"
 _K_RESTORE_PFIB_VOLTAGE_CURRENT = _PREFIX + "restoreOriginalPFIBVoltageAndCurrent"
 _K_RESTORE_PFIB_ION_SPECIES = _PREFIX + "restoreOriginalPFIBIonSpecies"
-_K_ZERO_TILT_BEFORE_GIS_DEPOSITION = _PREFIX + "zeroTiltBeforeGisDeposition"
+# Key kept from v3.0.6 (the GIS Deposition zero-tilt key) so a stored
+# choice carries over; since v3.1.0 the setting covers every stage move.
+_K_ZERO_TILT_BEFORE_STAGE_MOVES = _PREFIX + "zeroTiltBeforeGisDeposition"
 _K_SCAN_ROTATE_AFTER_ROTATION = _PREFIX + "scanRotateAfterRotation"
 _K_ZERO_TILT_BEFORE_ROTATION = _PREFIX + "zeroTiltBeforeRotation"
 _K_TILT_AFTER_ROTATION = _PREFIX + "tiltAfterRotation"
@@ -58,7 +60,7 @@ class SettingsController(QObject):
     moveStageToOriginalPositionChanged = Signal()
     restoreOriginalPFIBVoltageAndCurrentChanged = Signal()
     restoreOriginalPFIBIonSpeciesChanged = Signal()
-    zeroTiltBeforeGisDepositionChanged = Signal()
+    zeroTiltBeforeStageMovesChanged = Signal()
     scanRotateAfterRotationChanged = Signal()
     zeroTiltBeforeRotationChanged = Signal()
     tiltAfterRotationChanged = Signal()
@@ -113,9 +115,9 @@ class SettingsController(QObject):
             _K_RESTORE_PFIB_ION_SPECIES,
             defaults.RESTORE_ORIGINAL_PFIB_ION_SPECIES,
         )
-        self._zero_tilt_before_gis_deposition = self._read_bool(
-            _K_ZERO_TILT_BEFORE_GIS_DEPOSITION,
-            defaults.ZERO_TILT_BEFORE_GIS_DEPOSITION,
+        self._zero_tilt_before_stage_moves = self._read_bool(
+            _K_ZERO_TILT_BEFORE_STAGE_MOVES,
+            defaults.ZERO_TILT_BEFORE_STAGE_MOVES,
         )
         self._scan_rotate_after_rotation = self._read_bool(
             _K_SCAN_ROTATE_AFTER_ROTATION,
@@ -315,25 +317,27 @@ class SettingsController(QObject):
         self._qs.setValue(_K_RESTORE_PFIB_ION_SPECIES, value)
         self.restoreOriginalPFIBIonSpeciesChanged.emit()
 
-    # --- Zero tilt before GIS deposition -----------------------------------
+    # --- Zero tilt before stage moves ----------------------------------------
     #
-    # When True, each GIS Deposition activity tilts the stage to zero
-    # degrees before moving to its deposition position (the XY/Z move
-    # then happens from a flat orientation). Read into the workflow
-    # settings snapshot at Start and passed to each GISDepositionService.
+    # When True, every move to a saved or captured position is a staged
+    # move (tilt to 0°, X/Y/Z/R, tilt to the position's tilt) — see
+    # microscope/stage_moves.py. Read into the workflow settings
+    # snapshot at Start for GIS Deposition, Sputter Coat and the stage
+    # restore, and read live by the Stage Positions controller for
+    # Move To.
 
-    @Property(bool, notify=zeroTiltBeforeGisDepositionChanged)
-    def zeroTiltBeforeGisDeposition(self) -> bool:
-        return self._zero_tilt_before_gis_deposition
+    @Property(bool, notify=zeroTiltBeforeStageMovesChanged)
+    def zeroTiltBeforeStageMoves(self) -> bool:
+        return self._zero_tilt_before_stage_moves
 
-    @zeroTiltBeforeGisDeposition.setter
-    def zeroTiltBeforeGisDeposition(self, value: bool) -> None:
+    @zeroTiltBeforeStageMoves.setter
+    def zeroTiltBeforeStageMoves(self, value: bool) -> None:
         value = bool(value)
-        if value == self._zero_tilt_before_gis_deposition:
+        if value == self._zero_tilt_before_stage_moves:
             return
-        self._zero_tilt_before_gis_deposition = value
-        self._qs.setValue(_K_ZERO_TILT_BEFORE_GIS_DEPOSITION, value)
-        self.zeroTiltBeforeGisDepositionChanged.emit()
+        self._zero_tilt_before_stage_moves = value
+        self._qs.setValue(_K_ZERO_TILT_BEFORE_STAGE_MOVES, value)
+        self.zeroTiltBeforeStageMovesChanged.emit()
 
     # --- Scan Rotate After Rotation ---------------------------------------
 

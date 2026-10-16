@@ -63,7 +63,7 @@ GroupBox {
     readonly property int selectedTypeIndex: liftoutCalcComboBox.currentIndex
 
     // ------------------------------------------------------------------
-    // Uniform spin box width: widest measured member in THIS group. Each
+    // Uniform spin box width: widest measured member in this group. Each
     // CustomSpinBox still self-measures its own implicitWidth; we just bind
     // every box to the group max so they line up across liftout types.
     // Loop-safe because implicitWidth doesn't depend on preferredWidth/width.
@@ -155,8 +155,8 @@ GroupBox {
     // Per-type session store (save/restore buffer).
     //
     // Seeded once at construction from the per-type defaults above. The
-    // store is the single source of truth for REMEMBERED values; the
-    // spin boxes are the source of truth for the CURRENTLY DISPLAYED
+    // store is the single source of truth for remembered values; the
+    // spin boxes are the source of truth for the currently displayed
     // type. They are reconciled only on a type switch and by Reset.
     // ------------------------------------------------------------------
 
@@ -179,14 +179,14 @@ GroupBox {
     ]
 
     // The lift-out type the spin boxes currently represent. Updated
-    // ONLY by _loadStoreIntoSpinBoxes. Save-on-leave keys off THIS, not
+    // only by _loadStoreIntoSpinBoxes. Save-on-leave keys off this, not
     // off liftoutCalcComboBox.currentIndex, because the combo index can
     // advance before a deferred editor commit has flushed into `value`
     // (the bug this design fixes — see header).
     property int _activeTypeIndex: 0
 
     // Reassign whole arrays (slice + replace) rather than mutating in
-    // place: an in-place a[i] = v does NOT emit the property-changed
+    // place: an in-place a[i] = v does not emit the property-changed
     // signal in QML. Reassignment keeps the store observable and
     // future-proofs against a later reactive consumer.
 

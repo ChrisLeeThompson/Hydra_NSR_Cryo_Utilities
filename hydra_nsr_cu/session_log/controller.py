@@ -345,8 +345,8 @@ class SessionLog(QObject):
 
         Per-activity-type formatting because parameter shapes differ —
         Sputter Coat speaks positions and pA, GIS Deposition speaks
-        port names and seconds, Home Stage speaks a single bool. The
-        delegate doesn't care; it just shows what comes back.
+        port names and seconds, Home Stage shows nothing. The delegate
+        doesn't care; it just shows what comes back.
 
         Unknown activity types get a generic ``key=value`` rendering,
         which keeps the page informative for any future activity
@@ -402,14 +402,17 @@ class SessionLog(QObject):
             return ", ".join(parts)
 
         # Home Stage intentionally renders no parameter line. The
-        # activity takes no parameters (``parameter_summary()`` returns
-        # ``{}``); whether the stage returns to its original position is
-        # a workflow-level concern — the runner's StageRecorder, driven
-        # by the "Move Stage To Original Position" setting — not
-        # something this per-activity line should report. Its empty
-        # params dict falls through to the generic rendering below and
-        # yields "". (A former ``move_to_original`` param branch lived
-        # here; it was removed with the activity parameter.)
+        # activity takes no user parameters; ``parameter_summary()``
+        # records only the holder it homed under, kept in the JSONL
+        # record like the other activities' holders and not shown on
+        # their lines either. Whether the stage returns to its original
+        # position is a workflow-level concern — the runner's
+        # StageRecorder, driven by the "Move Stage To Original
+        # Position" setting — not something this per-activity line
+        # should report. (A former ``move_to_original`` param branch
+        # lived here; it was removed with the activity parameter.)
+        if activity_id == "home_stage":
+            return ""
 
         # Unknown activity type — generic rendering. Sorted keys so
         # the output is stable across runs.
@@ -505,7 +508,7 @@ class SessionLog(QObject):
         # Disk. Only reset _has_been_written to "fresh install" if the
         # rewrite-to-empty actually succeeded. On failure the old
         # non-empty file is still fully intact on disk, so forcing the
-        # flag False would disarm the self-heal-on-vanish path AND make
+        # flag False would disarm the self-heal-on-vanish path and make
         # the next append plain-append a new session onto the stale
         # content. Leaving the flag (and the _resync_pending flag that
         # _safe_rewrite_all set) untouched means the next write does a
@@ -892,7 +895,7 @@ class SessionLog(QObject):
             # A non-JSON-serializable record (e.g. a set / datetime in
             # params) — shouldn't happen, since parameter_summary returns
             # JSON primitives by contract, but it would otherwise escape
-            # this same-thread slot. Deliberately do NOT arm
+            # this same-thread slot. Deliberately do not arm
             # _resync_pending: re-serializing the same bad record on the
             # next write would fail identically, and on the resync /
             # file-vanished path that re-serialize would be the *whole

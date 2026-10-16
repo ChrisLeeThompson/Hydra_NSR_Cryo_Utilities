@@ -135,7 +135,7 @@ SpinBox {
     // Pin the control's implicit width to the widest in-range value (not the
     // live text). A TextInput's implicitWidth is read-only, so we size the
     // whole control here. leftPadding/rightPadding already include the base
-    // padding AND the arrow-indicator widths, so content + leftPadding +
+    // padding and the arrow-indicator widths, so content + leftPadding +
     // rightPadding is the correct width whether arrows are shown or not; the
     // background min still floors very short ranges. +6 px caret/edge margin.
     // (Stable across values: depends only on range/decimals/font/padding.)
@@ -146,7 +146,7 @@ SpinBox {
 
     // --- Arrow indicators ---
     // Two responsibilities are folded into these custom delegates:
-    //   1. showArrows toggles visibility AND collapses the reserved layout
+    //   1. showArrows toggles visibility and collapses the reserved layout
     //      width (implicitWidth -> 0) so hidden arrows don't reserve space.
     //   2. High-contrast glyph fix: the Universal style hardcodes the arrow
     //      glyph to chromeBlackHighColor (pure black) whenever the control has
@@ -184,7 +184,7 @@ SpinBox {
             // root.enabled: the SpinBox template disables the up indicator
             // when value is at the maximum, and disables the whole control
             // when root.enabled is false. Both propagate here, so the arrow
-            // dims at the limit AND when the control is disabled — matching
+            // dims at the limit and when the control is disabled — matching
             // the original Universal behavior.
             color: enabled ? AppConfig.universalForeground   // white when actionable
                            : AppConfig.textDisabledColor     // dimmed at limit / disabled
@@ -233,7 +233,7 @@ SpinBox {
                 wheel.accepted = false     // let the event bubble up
                 return
             }
-            // increase()/decrease() are programmatic and do NOT emit
+            // increase()/decrease() are programmatic and do not emit
             // valueModified on their own, which silently desyncs the
             // displayed value from consumers that recalculate in
             // onValueModified. The wheel is user interaction, so emit

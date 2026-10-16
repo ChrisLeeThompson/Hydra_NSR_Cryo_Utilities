@@ -148,7 +148,7 @@ class ActivityService(ABC):
     type leave :attr:`instance_id` empty.
     """
 
-    # Subclasses MUST override this with a stable identifier. A class
+    # Subclasses must override this with a stable identifier. A class
     # attribute (rather than a constructor argument) so we can refer to
     # the id without instantiating — useful for the runner's signal
     # plumbing and for QML page wiring.
@@ -262,7 +262,7 @@ class ActivityService(ABC):
         the persisted dict is the canonical fact.
 
         Identity fields (:attr:`activity_id`, :attr:`instance_id`) are
-        NOT included — they live alongside the dict on the log row's
+        not included — they live alongside the dict on the log row's
         factual fields. Duplicating them inside the parameter dict would
         mix identity with parameters.
 

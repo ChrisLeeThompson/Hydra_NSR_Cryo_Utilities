@@ -16,7 +16,9 @@ import "../Effects"
 //
 //   • message (string)    — a single wrapped Label. Used by the
 //                           position dialogs and the generic error
-//                           dialog.
+//                           dialog. An optional `note` adds a second
+//                           paragraph under it (Move To uses it to say
+//                           the holder changes) and widens the dialog.
 //
 //   • checkItems (list)   — one row per pre-start check result.
 //                           Each row renders the warning icon
@@ -61,6 +63,9 @@ Dialog {
 
     // --- Public API ---
     property string message: ""
+    // Optional second paragraph under the message (message mode only).
+    // Set it before each open(); "" hides it.
+    property string note: ""
     // Pre-start check results: a JS array of { title, message }
     // objects. Non-empty switches the content area to icon rows.
     property var checkItems: []
@@ -70,7 +75,7 @@ Dialog {
     // don't represent a yes/no choice.
     property bool dismissOnly: false
     // Button labels. Defaults are sourced from Strings so all dialog
-    // wording lives in one place; the values are unchanged ("Ok" /
+    // wording lives in one place; the values are unchanged ("OK" /
     // "Cancel"). Override on a per-instance basis where a richer action
     // verb fits — see the pre-start-check acknowledgement dialog in
     // main.qml, which sets acceptText to Strings.preStartConfirmAcceptText.
@@ -87,7 +92,10 @@ Dialog {
     // --- Visuals ---
     modal: true
     anchors.centerIn: parent
-    width: AppConfig.dialogDefaultWidth
+    // Wide while a note shows so it reads on fewer lines.
+    width: root.note !== "" && !root._checkMode
+           ? AppConfig.dialogWideWidth
+           : AppConfig.dialogDefaultWidth
     padding: AppConfig.dialogPadding
 
     // Dialog body background. Same color throughout so the header
@@ -132,6 +140,16 @@ Dialog {
             Layout.fillWidth: true
             Layout.maximumHeight: 300
             elide: Label.ElideRight
+        }
+
+        // Mode 1, optional note under the message.
+        Label {
+            visible: !root._checkMode && root.note !== ""
+            text: root.note
+            font.pixelSize: AppConfig.pageBodyFontSize
+            color: AppConfig.universalForeground
+            wrapMode: Label.WordWrap
+            Layout.fillWidth: true
         }
 
         // Mode 2: one icon + description row per check result.
